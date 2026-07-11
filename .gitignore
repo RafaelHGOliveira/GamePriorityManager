@@ -1,0 +1,35 @@
+# Local AI tooling (skill packs, session settings)
+.agents/
+.claude/
+
+# .NET build output
+bin/
+obj/
+out/
+artifacts/
+
+# User/IDE files
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+# Test results & coverage
+TestResults/
+*.trx
+coverage*.json
+coverage*.xml
+
+# NuGet
+*.nupkg
+packages/
+
+# Publish output
+publish/
+*.pubxml.user
+
+# OS junk
+Thumbs.db
+Desktop.ini
