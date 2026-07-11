@@ -20,9 +20,11 @@ public partial class MainWindow
         switch (theme)
         {
             case "dark":
+                Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
                 Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark);
                 break;
             case "light":
+                Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
                 Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Light);
                 break;
             default:
