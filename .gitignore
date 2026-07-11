@@ -1,6 +1,7 @@
 # Local AI tooling (skill packs, session settings)
 .agents/
 .claude/
+.worktrees/
 
 # .NET build output
 bin/
