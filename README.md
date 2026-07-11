@@ -116,3 +116,10 @@ smoke test that validates the end-to-end behavior on a real machine.
 
 Core functionality is implemented, reviewed, and covered by tests. See
 [`handoff.md`](handoff.md) for detailed live status and known caveats.
+
+## License
+
+Copyright © 2026 Rafael H. G. Oliveira. Licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE) — you may use, modify, and
+distribute this software for **noncommercial purposes** only. Commercial use
+requires a separate license from the author.
