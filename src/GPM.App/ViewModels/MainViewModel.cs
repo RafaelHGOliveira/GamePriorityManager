@@ -4,6 +4,7 @@ using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GPM.App.Services;
+using GPM.Core.Detection.Steam;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -85,6 +86,19 @@ public sealed partial class MainViewModel(
             config.Save(cfg);
             StatusMessage = null;
         }
+
+        // Non-game Steam tools (redistributables, runtimes, Proton) may still sit in an
+        // older games.json cache that was written before they were filtered at scan time.
+        // Drop them here too so they never appear regardless of cache vs. fresh scan, and
+        // heal the cache so it only happens once.
+        var withoutTools = detected.Where(g => !SteamManifests.IsNonGameApp(g.Name)).ToList();
+        if (withoutTools.Count != detected.Count)
+        {
+            detected = withoutTools;
+            cfg.DetectedGames = detected;
+            config.Save(cfg);
+        }
+
         var games = detected.Concat(cfg.ManualGames).ToList();
 
         // resolve exes, then group rows by filename so linked rows share ONE state
