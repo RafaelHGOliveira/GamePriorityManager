@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\GPM.Core\GPM.Core.csproj" />
+    <ProjectReference Include="..\..\src\GPM.App\GPM.App.csproj" />
     <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
