@@ -72,6 +72,15 @@ public sealed class PriorityServiceTests : IDisposable
     public void invalid_io_is_rejected(int io) =>
         Assert.Throws<ArgumentOutOfRangeException>(() => _svc.Write("x.exe", null, io));
 
+    [Theory]
+    [InlineData(@"..\..\evil.exe")]
+    [InlineData(@"foo\Debugger")]
+    [InlineData("foo/bar.exe")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void path_separator_in_exename_is_rejected(string exe) =>
+        Assert.Throws<ArgumentException>(() => _svc.Write(exe, 3, null));
+
     [Fact]
     public void readall_lists_only_keys_with_overrides_and_flags_debugger()
     {

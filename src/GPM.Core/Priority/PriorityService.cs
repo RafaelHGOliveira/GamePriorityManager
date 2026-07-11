@@ -23,6 +23,11 @@ public sealed class PriorityService(IRegistryRoot ifeo) : IPriorityService
 
     public void Write(string exeName, int? cpu, int? io)
     {
+        // A path separator would redirect the write outside <exe>\PerfOptions.
+        // OpsValidator already blocks this on the worker path; guard here too so
+        // no caller can ever escape the key with an unvalidated exe name.
+        if (string.IsNullOrWhiteSpace(exeName) || exeName.Contains('\\') || exeName.Contains('/'))
+            throw new ArgumentException("invalid exe name", nameof(exeName));
         if (cpu is int c && !PriorityValues.ValidCpu.Contains(c))
             throw new ArgumentOutOfRangeException(nameof(cpu), c, "value not allowed");
         if (io is int i && !PriorityValues.ValidIo.Contains(i))
