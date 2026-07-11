@@ -5,12 +5,25 @@ pipeline for the plans in `docs/superpowers/plans/` runs. If you're picking
 this up cold, read this file first, then `git log`/`git worktree list` to
 verify it against reality (this file can lag actual state between refreshes).
 
-## Status: IN PROGRESS
+## Status: IN PROGRESS (checked periodically — see timestamps below are absent by design, trust git log over this file)
 
-Pipeline launched as background Workflow task `w28o5g9cx` (run ID
-`wf_db33b133-d57`). Currently in **Phase 0 (Foundation), Task 1** (solution
-skeleton + CI) — first implementer agent dispatched, no commits landed yet
-(first `dotnet build` is restoring NuGet packages).
+Pipeline running as background Workflow task `w28o5g9cx` (run ID
+`wf_db33b133-d57`). **Foundation is done and merged into `gpm-mvp`.** Tracks
+A/B/C/D are running in parallel:
+
+- **A (registry/worker):** A1, A2, A3 approved. A4 (ApplyWorker) in progress.
+- **B (detection):** B1–B4 approved. B5 (GameScanner+JsonConfigStore)
+  implemented, commit landed, review in progress.
+- **C (exe resolver):** **all 3 tasks (C1, C2, C3) approved — track complete**,
+  waiting at the barrier for A/B/D before the sequential merge into `gpm-mvp`
+  starts (merges only begin once all four tracks finish, see Pipeline
+  mechanics below).
+- **D (UI shell):** D1, D2 approved. D3 (MainViewModel) implemented, commit
+  landed, review in progress. D4 (MainWindow XAML) not started.
+
+No task has failed review outright yet — a couple of implementers hit a
+real C# name-resolution gotcha (see Notable findings below) and self-corrected
+with DONE_WITH_CONCERNS, and reviewers independently re-verified and approved.
 
 Watch live progress with `/workflows`, or inspect
 `C:\Users\Rafael\.claude\projects\C--Users-Rafael-Documents-Game-Priority-Manager--GPM-\9a992ccd-fde0-4643-9892-caf99b10939a\subagents\workflows\wf_db33b133-d57\journal.jsonl`.
@@ -71,25 +84,25 @@ If the workflow needs to be resumed after an interruption:
 Legend: ⬜ not started · 🔄 in progress · ✅ approved+merged · ⚠️ blocked (see notes)
 
 ### Phase 0 — Foundation (`ws-0-foundation`)
-- 🔄 Task 1: Solution skeleton + CI
-- ⬜ Task 2: GPM.Core contracts
-- ⬜ Task 3: Store fixtures
-- ⬜ Merge into `gpm-mvp`
+- ✅ Task 1: Solution skeleton + CI
+- ✅ Task 2: GPM.Core contracts
+- ✅ Task 3: Store fixtures
+- ✅ Merge into `gpm-mvp` (commit `3a5e51f`)
 
 ### Phase A — Registry & elevated worker (`ws-a-registry-worker`)
-- ⬜ A1 RealRegistryRoot · ⬜ A2 PriorityService · ⬜ A3 OpsValidator · ⬜ A4 ApplyWorker
+- ✅ A1 RealRegistryRoot · ✅ A2 PriorityService · ✅ A3 OpsValidator · 🔄 A4 ApplyWorker
 - ⬜ Merge into `gpm-mvp`
 
 ### Phase B — Detection (`ws-b-detection`)
-- ⬜ B1 VDF parser + Steam manifests · ⬜ B2 SteamSource+registries · ⬜ B3 Epic+GOG · ⬜ B4 EA+Ubisoft (beta) · ⬜ B5 GameScanner+JsonConfigStore
+- ✅ B1 VDF parser + Steam manifests · ✅ B2 SteamSource+registries · ✅ B3 Epic+GOG · ✅ B4 EA+Ubisoft (beta) · 🔄 B5 GameScanner+JsonConfigStore (implemented, review in progress)
 - ⬜ Merge into `gpm-mvp`
 
 ### Phase C — Exe resolver (`ws-c-exe-resolver`)
-- ⬜ C1 KnownGames · ⬜ C2 ExeHeuristics · ⬜ C3 ExeResolver pipeline
-- ⬜ Merge into `gpm-mvp`
+- ✅ C1 KnownGames · ✅ C2 ExeHeuristics · ✅ C3 ExeResolver pipeline — **track complete**
+- ⬜ Merge into `gpm-mvp` (waiting on A/B/D to finish — merges start together once all 4 tracks are done)
 
 ### Phase D — UI shell (`ws-d-ui-shell`)
-- ⬜ D1 Strings.resx+options · ⬜ D2 ExeOverrideState+row VMs · ⬜ D3 MainViewModel · ⬜ D4 MainWindow XAML (mock data)
+- ✅ D1 Strings.resx+options · ✅ D2 ExeOverrideState+row VMs · 🔄 D3 MainViewModel (implemented, review in progress) · ⬜ D4 MainWindow XAML (mock data)
 - ⬜ Merge into `gpm-mvp`
 
 ### Phase E — Integration (`ws-e-integration`, starts only after A–D merged)
@@ -100,6 +113,32 @@ Legend: ⬜ not started · 🔄 in progress · ✅ approved+merged · ⚠️ blo
 - ⬜ 4-lens final review (correctness / registry-write safety / spec-compliance / cross-track consistency)
 - ⬜ Fix pass for Critical/Important findings (if any)
 - ⬜ Present `finishing-a-development-branch` options to the user (main is never touched automatically)
+
+## Notable findings so far
+
+- **Fixed:** Task 1's `dotnet new gitignore` scaffolding step overwrote the
+  repo's custom `.gitignore`, silently dropping the `.agents/`, `.claude/`,
+  `.worktrees/` entries (per-task reviewer caught this as an Important
+  finding but it didn't block that task's approval, and it had already been
+  merged into `gpm-mvp`). Confirmed no working-tree files were actually at
+  risk yet (`.agents/`/`.claude/` only exist in the main repo checkout, not
+  inside worktrees), but the loss would have resurfaced wherever this branch
+  eventually lands. Restored the three entries directly on `gpm-mvp`
+  (commit `5603136`) rather than waiting for the final-review fix pass.
+- **Recurring, correctly-handled gotcha:** the plan's literal test code uses
+  unqualified `Registry.CurrentUser` (`Microsoft.Win32.Registry`), but since
+  `GPM.Core.Registry` is also a namespace in this codebase, C# simple-name
+  lookup resolves the bare `Registry` identifier to that sibling namespace
+  first, causing CS0234. Both A1 (`RealRegistryRootTests`) and A2
+  (`PriorityServiceTests`) implementers hit this, fully-qualified to
+  `Microsoft.Win32.Registry.CurrentUser` (no behavior change), flagged it as
+  a concern, and reviewers independently reproduced and confirmed the fix
+  was necessary — both approved. Worth knowing if later tasks (D/E, which
+  also touch registry-adjacent code) hit the same thing.
+- Two plan test-count comments are off by one vs. actual xUnit `Theory`
+  expansion (A2: "9 tests" vs actual 10; A3: "13 tests" vs actual 14) —
+  cosmetic plan-doc inaccuracies, not code defects, noted by both
+  implementers and reviewers.
 
 ## Known accepted quirks (from plan pre-flight scan, not blockers)
 
