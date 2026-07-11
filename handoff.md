@@ -5,32 +5,73 @@ pipeline for the plans in `docs/superpowers/plans/` runs. If you're picking
 this up cold, read this file first, then `git log`/`git worktree list` to
 verify it against reality (this file can lag actual state between refreshes).
 
-## Status: RESUMED — E3 hand-carried to approved, E4-E6+merge+final-review running
+## Status: PIPELINE COMPLETE — awaiting user decision on landing to `main`
 
-E3's resume caveat (below, kept for history) was resolved by option (a): a
-fresh reviewer agent was pointed at commit `f9daddf` directly against the
-Task E3 spec (`docs/superpowers/plans/2026-07-10-gpm-e-integration.md` lines
-395-702). Verdict: 6/8 required behaviors cleanly delivered, 2 delivered with
-real bugs inherited from the plan's own sample code (not implementer
-deviations) — `ExeIconConverter` didn't guard `Icon.ExtractAssociatedIcon`
-against exceptions (could crash the app on a locked/corrupt exe), and
-`MainWindow.ApplyTheme` never called `SystemThemeWatcher.UnWatch` before
-applying an explicit dark/light choice (a later OS theme change would
-silently revert it). Independently confirmed build clean + 98/98 tests
-passing (not just trusting the commit message). Both bugs fixed directly and
-committed: `00aa6d3` on `ws-e-integration` ("fix: guard icon extraction
-against exceptions and stop theme watcher fighting manual theme choice").
-**E3 is now genuinely reviewed and approved**, no re-run needed.
+All 25 tasks across plans 0/A/B/C/D/E are implemented, reviewed, and merged
+into `gpm-mvp`. The final 4-lens whole-branch review ran and its one
+Critical/Important-severity fix pass has been applied. Independently
+verified on `gpm-mvp` (not just trusting agent reports): `dotnet build
+GamePriorityManager.sln -c Release` clean, `dotnet test tests/GPM.Core.Tests
+-c Release --no-build` → **104/104 passing**.
+
+**One genuine gap remains, and it is not closable by an agent:** Task E5 (the
+admin/UAC-gated effectiveness smoke test, the "does Windows actually honor
+`IoPriority=3`" checkpoint) was authored as an unfilled template
+(`docs/manual-smoke-test.md`, still "Status: NOT YET RUN") — it requires a
+human to elevate, launch the real app, and eyeball Task Manager/Process
+Explorer. **A human must run it before release/merge-to-main.** If the probe
+shows Windows does *not* honor IO=High via IFEO, `PriorityOptions.Io` needs
+the `High` entry removed and `PriorityOptionsTests` updated to
+`[null, 0, 1, 2]` per the plan — see `docs/manual-smoke-test.md` and
+`docs/release.md` step 4 for the exact procedure.
+
+Final-review fix pass **did** fix the other Critical/Important finding: a
+`VdfParser` bounds-check bug where a truncated/corrupt Steam `.acf`/`.vdf`
+manifest threw `IndexOutOfRangeException`, and because neither
+`SteamManifests` nor `SteamSource.ScanRoot` caught it per-file, `GameScanner`'s
+blanket catch discarded the *entire* Steam source — one bad manifest file
+would silently hide every Steam game. Fixed + 6 new tests, commit `f6db787`
+on `gpm-mvp`.
+
+Remaining findings (all Minor, all reviewed and accepted as not worth fixing
+now — see "Notable findings" below for detail): registry-write defense-in-depth
+gaps, a few UI polish items, and the already-known test-double duplication
+across D3/D4/E2/E3 (flagged since the plan pre-flight scan, see "Known
+accepted quirks").
+
+**Next step:** present `finishing-a-development-branch` options (merge
+`gpm-mvp` → `main`, open a PR, or leave as-is) — this is the one decision the
+pipeline was built to never make automatically, and it should happen only
+after a human has run the E5 smoke test.
+
+<details>
+<summary>Resume history (E3 hand-carry + E4-E6 continuation, kept for reference)</summary>
+
+E3's resume caveat (further below, kept for history) was resolved by option
+(a): a fresh reviewer agent was pointed at commit `f9daddf` directly against
+the Task E3 spec (`docs/superpowers/plans/2026-07-10-gpm-e-integration.md`
+lines 395-702). Verdict: 6/8 required behaviors cleanly delivered, 2
+delivered with real bugs inherited from the plan's own sample code (not
+implementer deviations) — `ExeIconConverter` didn't guard
+`Icon.ExtractAssociatedIcon` against exceptions (could crash the app on a
+locked/corrupt exe), and `MainWindow.ApplyTheme` never called
+`SystemThemeWatcher.UnWatch` before applying an explicit dark/light choice (a
+later OS theme change would silently revert it). Independently confirmed
+build clean + 98/98 tests passing (not just trusting the commit message).
+Both bugs fixed directly and committed: `00aa6d3` on `ws-e-integration`
+("fix: guard icon extraction against exceptions and stop theme watcher
+fighting manual theme choice"). E3 was then genuinely reviewed and approved,
+no re-run needed.
 
 Because the original workflow's E3 `agent()` call was killed mid-flight (no
 cached result), resuming it via `resumeFromRunId` would have unconditionally
 re-dispatched a fresh E3 implementer regardless of any script edits — so
-instead of resuming `wf_db33b133-d57`, a **new** workflow script was
-authored/launched that continues from E4 through E5, E6, the merge into
-`gpm-mvp`, and the final 4-lens review + fix pass, reusing the original
-pipeline's exact task/review/fix prompts and schemas. See the "Pipeline
-mechanics" section below for its script path and how to resume *that* one if
-it gets interrupted.
+instead of resuming `wf_db33b133-d57`, a new workflow script
+(`gpm-execute-e4-onward`, task ID `w771ykh73`, run ID `wf_ae8069ce-6f7`) was
+authored/launched that ran E4 → E5 → E6 → merge into `gpm-mvp` → 4-lens final
+review → fix pass, reusing the original pipeline's exact task/review/fix
+prompts and schemas. It completed cleanly (12/12 agents, no errors) with the
+results folded into the Status section above.
 
 <details>
 <summary>Original pause note (2026-07-11, kept for history)</summary>
@@ -53,6 +94,7 @@ review have not started.
 Watch what actually happened via
 `C:\Users\Rafael\.claude\projects\C--Users-Rafael-Documents-Game-Priority-Manager--GPM-\9a992ccd-fde0-4643-9892-caf99b10939a\subagents\workflows\wf_db33b133-d57\journal.jsonl`
 (one `"started"` entry with no matching `"result"` = the killed E3 attempt).
+</details>
 </details>
 
 ## What's being built
@@ -148,15 +190,15 @@ Legend: ⬜ not started · 🔄 in progress · ✅ approved+merged · ⚠️ blo
 - ✅ E1 ElevationLauncher+`--apply`+composition root
 - ✅ E2 Manual games+exe verification
 - ✅ E3 Settings/IO column/rescan/icons — hand-reviewed against spec (commit `f9daddf`), 2 real bugs found and fixed (commit `00aa6d3`: icon-extraction exception guard, theme-watcher/manual-theme conflict). Build clean, 98/98 tests pass. Approved.
-- 🔄 E4 GPM.Probe
-- ⬜ E5 manual-smoke-test.md (doc only, not executed by an agent)
-- ⬜ E6 Portable release build
-- ⬜ Merge into `gpm-mvp`
+- ✅ E4 GPM.Probe (commit `fd66247`)
+- ✅ E5 manual-smoke-test.md — doc authored per spec (commit `fc42b9b`), but **the actual smoke test has not been run** — still needs a human with admin access. See Status section.
+- ✅ E6 Portable release build — `docs/release.md` + confirmed `dotnet publish` output exists, ~146MB (commit `324fe9b`)
+- ✅ Merge into `gpm-mvp` (commit `fb845e3`)
 
 ### Final
-- ⬜ 4-lens final review (correctness / registry-write safety / spec-compliance / cross-track consistency)
-- ⬜ Fix pass for Critical/Important findings (if any)
-- ⬜ Present `finishing-a-development-branch` options to the user (main is never touched automatically)
+- ✅ 4-lens final review (correctness / registry-write safety / spec-compliance / cross-track consistency) — 12 findings, see "Notable findings"
+- ✅ Fix pass for Critical/Important findings — `VdfParser` bounds-check bug fixed (commit `f6db787`); the E5 smoke-test gap can't be fixed by an agent, flagged for a human
+- ⬜ Present `finishing-a-development-branch` options to the user (main is never touched automatically) — **blocked on the human running the E5 smoke test first**
 
 ## Notable findings so far
 
@@ -183,6 +225,38 @@ Legend: ⬜ not started · 🔄 in progress · ✅ approved+merged · ⚠️ blo
   expansion (A2: "9 tests" vs actual 10; A3: "13 tests" vs actual 14) —
   cosmetic plan-doc inaccuracies, not code defects, noted by both
   implementers and reviewers.
+- **Final review (4 lenses, 12 findings total):**
+  - **Important, fixed** (`f6db787`): `VdfParser` had no bounds checking —
+    a truncated/corrupt Steam `.acf`/`.vdf` threw `IndexOutOfRangeException`,
+    and since neither `SteamManifests` nor `SteamSource.ScanRoot` caught it
+    per-file, `GameScanner`'s blanket catch discarded the entire Steam source
+    (one bad manifest → every Steam game disappears). Now bounds-safe,
+    per-file try/catch added (matching `EpicSource`'s pattern), 6 new tests.
+  - **Important, not fixable by an agent**: Task E5's smoke test was never
+    actually run (see Status section) — this is the one open item before
+    landing.
+  - **Minor, left as-is** (all reviewed, none blocking): `MainViewModel`
+    doesn't surface a batch-level error message when the elevated worker
+    rejects/crashes (silent no-op, edge case); `ManagedExes` provenance is
+    recorded even for failed/delete ops (harmless — no override survives to
+    be flagged orphaned); `PriorityService.Write` trusts `OpsValidator`
+    upstream for exe-name shape rather than re-validating itself
+    (defense-in-depth gap, single production caller today so not exploitable
+    now); `OpsValidator` doesn't reject dot/space-only exe names (harmless,
+    no registry traversal possible); two hardcoded English strings in
+    `MainWindow.xaml` bypass `Strings.resx` (pre-existing, Plan D explicitly
+    deferred this "to plan E polish if desired" and E never revisited it);
+    the `SystemThemeWatcher.UnWatch` calls added during the E3 hand-fix are
+    beyond the plan's literal spec but correctly flagged as a beneficial fix,
+    not a defect; the known test-double duplication (`PassthroughResolver`,
+    `MemoryConfigStore`/`TempConfigStore`, `NoopLauncher`/`FakeLauncher`/
+    `MockLauncher`) was confirmed exactly as anticipated in "Known accepted
+    quirks" below, with two `PassthroughResolver` copies actually differing
+    in behavior (a real consolidation trap if anyone dedupes later, not a
+    current bug); `Realtime=4` magic-literal duplication across test files
+    was reviewed and the recommendation is to leave it (giving it a named
+    constant in production code would be an attractive nuisance against the
+    "forbidden everywhere" invariant).
 
 ## Known accepted quirks (from plan pre-flight scan, not blockers)
 
