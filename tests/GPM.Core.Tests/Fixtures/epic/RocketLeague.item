@@ -1,0 +1,7 @@
+{
+  "FormatVersion": 0,
+  "AppName": "Sugar",
+  "DisplayName": "Rocket League",
+  "InstallLocation": "C:\\Program Files\\Epic Games\\rocketleague",
+  "LaunchExecutable": "Binaries\\Win64\\RocketLeague.exe"
+}
