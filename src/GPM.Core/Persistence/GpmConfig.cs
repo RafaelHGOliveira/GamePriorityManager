@@ -5,6 +5,8 @@ namespace GPM.Core.Persistence;
 public sealed class GpmConfig
 {
     public List<Game> ManualGames { get; set; } = [];
+    /// Detected-game cache (spec "UI": first-run scan cached; rescan via the toolbar button).
+    public List<Game> DetectedGames { get; set; } = [];
     /// "<store>:<storeId>" -> absolute exe path chosen by the user
     public Dictionary<string, string> ExeChoices { get; set; } = [];
     /// Provenance: lowercase exe names GPM has written overrides for

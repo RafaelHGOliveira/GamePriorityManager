@@ -11,6 +11,7 @@ public sealed class GameRowViewModel(Game game, ExeOverrideState? state, int lin
     /// null while the exe is unresolved (NeedsExeConfirmation without candidates).
     public ExeOverrideState? State { get; } = state;
     public bool IsLinked { get; } = linkedCount > 1;
+    public bool IsManual => Game.Store == GameStore.Manual;
     public bool NeedsExeConfirmation => Game.NeedsExeConfirmation;
     public bool HasGenericExeName { get; } =
         state is not null && GenericNames.Contains(state.ExeName);

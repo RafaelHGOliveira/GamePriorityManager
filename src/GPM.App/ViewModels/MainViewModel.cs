@@ -33,19 +33,65 @@ public sealed partial class MainViewModel(
     [ObservableProperty] private int pendingCount;
     [ObservableProperty] private string? statusMessage;
 
+    [ObservableProperty] private bool showIoColumn;
+    [ObservableProperty] private bool betaSourcesEnabled;
+    [ObservableProperty] private string theme = "auto";
+
+    public string ConfigPath => config.FilePath;
+
+    private bool _loadingSettings;
+
+    partial void OnShowIoColumnChanged(bool value) => SaveSettings();
+    partial void OnBetaSourcesEnabledChanged(bool value) => SaveSettings();
+    partial void OnThemeChanged(string value) => SaveSettings();
+
+    private void SaveSettings()
+    {
+        if (_loadingSettings) return;
+        var cfg = config.Load();
+        cfg.ShowIoColumn = ShowIoColumn;
+        cfg.BetaSourcesEnabled = BetaSourcesEnabled;
+        cfg.Theme = Theme;
+        config.Save(cfg);
+    }
+
+    [RelayCommand]
+    private Task RescanAsync() => LoadAsync(forceScan: true);
+
     public IReadOnlyList<GameRowViewModel> VisibleRows =>
         string.IsNullOrWhiteSpace(SearchText)
             ? Rows.ToList()
             : Rows.Where(r => r.Game.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToList();
 
-    public async Task LoadAsync()
+    public async Task LoadAsync(bool forceScan = false)
     {
         var cfg = config.Load();
-        var games = (await scanGames()).Concat(cfg.ManualGames).ToList();
+        _loadingSettings = true;
+        ShowIoColumn = cfg.ShowIoColumn;
+        BetaSourcesEnabled = cfg.BetaSourcesEnabled;
+        Theme = cfg.Theme;
+        _loadingSettings = false;
+
+        List<Game> detected;
+        if (!forceScan && cfg.DetectedGames.Count > 0)
+        {
+            detected = cfg.DetectedGames; // cache (spec: cached in games.json)
+        }
+        else
+        {
+            StatusMessage = string.Format(Strings.ScanProgress, "stores"); // simplified per-store progress
+            detected = (await scanGames()).ToList();
+            cfg.DetectedGames = detected;
+            config.Save(cfg);
+            StatusMessage = null;
+        }
+        var games = detected.Concat(cfg.ManualGames).ToList();
 
         // resolve exes, then group rows by filename so linked rows share ONE state
         var resolved = games.Select(g =>
         {
+            if (cfg.ExeChoices.TryGetValue(ExeChoiceKey(g), out var chosen) && File.Exists(chosen))
+                return g with { ExePath = chosen, NeedsExeConfirmation = false, ExeCandidates = [] };
             var r = resolver.Resolve(g);
             return g with
             {
@@ -83,6 +129,39 @@ public sealed partial class MainViewModel(
         }
 
         RecountPending();
+    }
+
+    private static string ExeChoiceKey(Game g) => $"{g.Store}:{g.StoreId ?? g.InstallDir ?? g.Name}";
+
+    public async Task AddManualGameAsync(string exePath)
+    {
+        var cfg = config.Load();
+        cfg.ManualGames.Add(new Game
+        {
+            Name = Path.GetFileNameWithoutExtension(exePath),
+            Store = GameStore.Manual,
+            InstallDir = Path.GetDirectoryName(exePath),
+            ExePath = exePath,
+        });
+        config.Save(cfg);
+        await LoadAsync();
+    }
+
+    public async Task RemoveManualGameAsync(GameRowViewModel row)
+    {
+        if (row.Game.Store != GameStore.Manual) return;
+        var cfg = config.Load();
+        cfg.ManualGames.RemoveAll(g => g.ExePath == row.Game.ExePath);
+        config.Save(cfg);
+        await LoadAsync();
+    }
+
+    public async Task ConfirmExeAsync(GameRowViewModel row, string exePath)
+    {
+        var cfg = config.Load();
+        cfg.ExeChoices[ExeChoiceKey(row.Game)] = exePath;
+        config.Save(cfg);
+        await LoadAsync();
     }
 
     private ExeOverrideState GetOrCreateState(string exeName)
