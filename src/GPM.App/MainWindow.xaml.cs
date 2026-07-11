@@ -20,17 +20,26 @@ public partial class MainWindow
         switch (theme)
         {
             case "dark":
-                Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
+                StopWatchingOsTheme();
                 Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark);
                 break;
             case "light":
-                Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
+                StopWatchingOsTheme();
                 Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Light);
                 break;
             default:
-                Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this); // follow OS
+                Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this); // follow future OS changes
+                Wpf.Ui.Appearance.ApplicationThemeManager.ApplySystemTheme(); // and match OS right now
                 break;
         }
+    }
+
+    // UnWatch throws if the window was never watched / isn't loaded yet (e.g. the
+    // initial ApplyTheme call from the constructor). Only unwatch once loaded.
+    private void StopWatchingOsTheme()
+    {
+        if (IsLoaded)
+            Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
     }
 
     private async void OnAddGameClick(object sender, System.Windows.RoutedEventArgs e)
