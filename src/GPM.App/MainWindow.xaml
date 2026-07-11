@@ -21,6 +21,29 @@
         <DockPanel Grid.Row="1" Margin="12,4,12,8">
             <ui:Button DockPanel.Dock="Right" Margin="8,0,0,0"
                        Content="{x:Static app:Strings.AddGame}" Click="OnAddGameClick" />
+            <ui:Button DockPanel.Dock="Right" Margin="8,0,0,0" Icon="{ui:SymbolIcon ArrowClockwise24}"
+                       Command="{Binding RescanCommand}" />
+            <ToggleButton DockPanel.Dock="Right" Margin="8,0,0,0" x:Name="SettingsToggle" Content="⚙" />
+            <Popup PlacementTarget="{Binding ElementName=SettingsToggle}" Placement="Bottom" StaysOpen="False"
+                   IsOpen="{Binding IsChecked, ElementName=SettingsToggle, Mode=TwoWay}">
+                <Border Background="{DynamicResource ApplicationBackgroundBrush}" Padding="12" CornerRadius="8">
+                    <StackPanel>
+                        <CheckBox Content="{x:Static app:Strings.Settings_ShowIo}"
+                                  IsChecked="{Binding ShowIoColumn}" />
+                        <CheckBox Content="{x:Static app:Strings.Settings_BetaSources}"
+                                  IsChecked="{Binding BetaSourcesEnabled}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="{x:Static app:Strings.Settings_Theme}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox SelectedValue="{Binding Theme}" SelectedValuePath="Tag">
+                                <ComboBoxItem Tag="auto" Content="auto" />
+                                <ComboBoxItem Tag="dark" Content="dark" />
+                                <ComboBoxItem Tag="light" Content="light" />
+                            </ComboBox>
+                        </StackPanel>
+                        <TextBlock Text="{Binding ConfigPath}" Opacity="0.5" FontSize="11" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+            </Popup>
             <ui:TextBox PlaceholderText="{x:Static app:Strings.SearchPlaceholder}"
                         Icon="{ui:SymbolIcon Search24}"
                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
@@ -32,15 +55,19 @@
                 <DataTemplate DataType="{x:Type vm:GameRowViewModel}">
                     <Grid Margin="0,2">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="90" />
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="130" />
-                            <ColumnDefinition Width="24" />
+                            <ColumnDefinition Width="28" />   <!-- icon -->
+                            <ColumnDefinition Width="*" />    <!-- name -->
+                            <ColumnDefinition Width="90" />   <!-- store -->
+                            <ColumnDefinition Width="170" />  <!-- exe -->
+                            <ColumnDefinition Width="130" />  <!-- cpu -->
+                            <ColumnDefinition Width="Auto" /> <!-- io (toggle) -->
+                            <ColumnDefinition Width="24" />   <!-- dirty -->
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{Binding Game.Name}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{Binding Game.Store}" Opacity="0.6" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Image Grid.Column="0" Width="20" Height="20"
+                               Source="{Binding Game.ExePath, Converter={StaticResource ExeIcon}}" />
+                        <TextBlock Grid.Column="1" Text="{Binding Game.Name}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding Game.Store}" Opacity="0.6" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="{Binding State.ExeName}" Opacity="0.6" />
                             <ui:SymbolIcon Symbol="Link24" Margin="4,0,0,0"
                                            Visibility="{Binding IsLinked, Converter={StaticResource BoolToVis}}"
@@ -58,12 +85,19 @@
                                        Icon="{ui:SymbolIcon Dismiss24}" Click="OnRemoveGameClick"
                                        Visibility="{Binding IsManual, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
-                        <ComboBox Grid.Column="3"
+                        <ComboBox Grid.Column="4"
                                   ItemsSource="{x:Static vm:PriorityOptions.Cpu}"
                                   DisplayMemberPath="Label" SelectedValuePath="Value"
                                   SelectedValue="{Binding State.PendingCpu}" />
-                        <TextBlock Grid.Column="4" Text="●" Foreground="#4cc2ff" VerticalAlignment="Center"
-                                   HorizontalAlignment="Center"
+                        <ComboBox Grid.Column="5" Width="120" Margin="4,0,0,0"
+                                  ItemsSource="{x:Static vm:PriorityOptions.Io}"
+                                  DisplayMemberPath="Label" SelectedValuePath="Value"
+                                  SelectedValue="{Binding State.PendingIo}"
+                                  Visibility="{Binding DataContext.ShowIoColumn,
+                                      RelativeSource={RelativeSource AncestorType=Window},
+                                      Converter={StaticResource BoolToVis}}" />
+                        <TextBlock Grid.Column="6" Text="●" Foreground="#4cc2ff" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" ToolTip="{Binding State.LastError}"
                                    Visibility="{Binding State.IsDirty, Converter={StaticResource BoolToVis}}" />
                     </Grid>
                 </DataTemplate>

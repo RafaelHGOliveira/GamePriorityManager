@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="WPF-UI" Version="4.*" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
+    <PackageReference Include="System.Drawing.Common" Version="10.*" />
     <ProjectReference Include="..\GPM.Core\GPM.Core.csproj" />
   </ItemGroup>
   <ItemGroup>

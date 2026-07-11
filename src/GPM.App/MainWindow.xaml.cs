@@ -8,7 +8,27 @@ public partial class MainWindow
     {
         DataContext = viewModel;
         InitializeComponent();
-        Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this); // follow OS dark/light
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.Theme)) ApplyTheme(viewModel.Theme);
+        };
+        ApplyTheme(viewModel.Theme);
+    }
+
+    private void ApplyTheme(string theme)
+    {
+        switch (theme)
+        {
+            case "dark":
+                Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark);
+                break;
+            case "light":
+                Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Light);
+                break;
+            default:
+                Wpf.Ui.Appearance.SystemThemeWatcher.Watch(this); // follow OS
+                break;
+        }
     }
 
     private async void OnAddGameClick(object sender, System.Windows.RoutedEventArgs e)
