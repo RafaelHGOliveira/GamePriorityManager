@@ -1,0 +1,84 @@
+name: release
+
+# Builds the portable, self-contained single-file exe on a Windows runner and
+# publishes it as a GitHub Release. Free on GitHub-hosted runners for public repos.
+# Triggered by pushing a v* tag, or manually via the Actions "Run workflow" button.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to release (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write   # needed to create the release and upload the exe
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        run: dotnet build GamePriorityManager.sln -c Release
+
+      - name: Test
+        run: dotnet test tests/GPM.Core.Tests -c Release --no-build
+
+      # Matches docs/release.md exactly: self-contained WPF, single-file, native
+      # libs bundled for self-extract (no trimming/AOT support for WPF).
+      - name: Publish portable exe
+        run: >
+          dotnet publish src/GPM.App -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o out/release
+
+      - name: Package and hash
+        id: pkg
+        shell: bash
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          mv out/release/GPM.App.exe "out/release/GPM-$V.exe"
+          SHA=$(sha256sum "out/release/GPM-$V.exe" | cut -d' ' -f1)
+          SIZE=$(( $(stat -c%s "out/release/GPM-$V.exe") / 1024 / 1024 ))
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "size=${SIZE} MB" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: GPM ${{ steps.ver.outputs.version }}
+          files: out/release/GPM-${{ steps.ver.outputs.version }}.exe
+          body: |
+            **GPM — Game Priority Manager** ${{ steps.ver.outputs.version }}
+
+            Portable, self-contained Windows build. Download `GPM-${{ steps.ver.outputs.version }}.exe` and run it — no install, no .NET runtime required.
+
+            | | |
+            |---|---|
+            | Size | ${{ steps.pkg.outputs.size }} |
+            | SHA256 | `${{ steps.pkg.outputs.sha }}` |
+
+            **Note:** the exe is unsigned, so SmartScreen/antivirus may warn on first
+            run. GPM only writes `CpuPriorityClass`/`IoPriority` under each exe's IFEO
+            `PerfOptions` key in the registry (HKLM) — nothing else — to set per-game
+            CPU/IO priority. Applying changes prompts for elevation (UAC).
