@@ -213,7 +213,8 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="24" />
-                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="130" />  <!-- cpu -->
+                                <ColumnDefinition Width="Auto" /> <!-- io (toggle) -->
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{Binding State.ExeName}" VerticalAlignment="Center" />
                             <ui:SymbolIcon Grid.Column="1" Symbol="Broom24"
@@ -223,6 +224,13 @@
                                       ItemsSource="{x:Static vm:PriorityOptions.Cpu}"
                                       DisplayMemberPath="Label" SelectedValuePath="Value"
                                       SelectedValue="{Binding State.PendingCpu}" />
+                            <ComboBox Grid.Column="3" Width="120" Margin="4,0,0,0"
+                                      ItemsSource="{x:Static vm:PriorityOptions.Io}"
+                                      DisplayMemberPath="Label" SelectedValuePath="Value"
+                                      SelectedValue="{Binding State.PendingIo}"
+                                      Visibility="{Binding DataContext.ShowIoColumn,
+                                          RelativeSource={RelativeSource AncestorType=Window},
+                                          Converter={StaticResource BoolToVis}}" />
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
