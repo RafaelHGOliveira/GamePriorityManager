@@ -5,7 +5,35 @@ pipeline for the plans in `docs/superpowers/plans/` runs. If you're picking
 this up cold, read this file first, then `git log`/`git worktree list` to
 verify it against reality (this file can lag actual state between refreshes).
 
-## Status: PAUSED (stopped on request — not blocked, not crashed)
+## Status: RESUMED — E3 hand-carried to approved, E4-E6+merge+final-review running
+
+E3's resume caveat (below, kept for history) was resolved by option (a): a
+fresh reviewer agent was pointed at commit `f9daddf` directly against the
+Task E3 spec (`docs/superpowers/plans/2026-07-10-gpm-e-integration.md` lines
+395-702). Verdict: 6/8 required behaviors cleanly delivered, 2 delivered with
+real bugs inherited from the plan's own sample code (not implementer
+deviations) — `ExeIconConverter` didn't guard `Icon.ExtractAssociatedIcon`
+against exceptions (could crash the app on a locked/corrupt exe), and
+`MainWindow.ApplyTheme` never called `SystemThemeWatcher.UnWatch` before
+applying an explicit dark/light choice (a later OS theme change would
+silently revert it). Independently confirmed build clean + 98/98 tests
+passing (not just trusting the commit message). Both bugs fixed directly and
+committed: `00aa6d3` on `ws-e-integration` ("fix: guard icon extraction
+against exceptions and stop theme watcher fighting manual theme choice").
+**E3 is now genuinely reviewed and approved**, no re-run needed.
+
+Because the original workflow's E3 `agent()` call was killed mid-flight (no
+cached result), resuming it via `resumeFromRunId` would have unconditionally
+re-dispatched a fresh E3 implementer regardless of any script edits — so
+instead of resuming `wf_db33b133-d57`, a **new** workflow script was
+authored/launched that continues from E4 through E5, E6, the merge into
+`gpm-mvp`, and the final 4-lens review + fix pass, reusing the original
+pipeline's exact task/review/fix prompts and schemas. See the "Pipeline
+mechanics" section below for its script path and how to resume *that* one if
+it gets interrupted.
+
+<details>
+<summary>Original pause note (2026-07-11, kept for history)</summary>
 
 The user asked for a pause. The background Workflow task (`w28o5g9cx`, run ID
 `wf_db33b133-d57`) was stopped via `TaskStop`, everything reachable was swept
@@ -22,22 +50,10 @@ flow): commit `f9daddf` on `ws-e-integration`, message flagged
 `(WIP, paused)`. E4, E5, E6, the E-branch merge, and the final whole-branch
 review have not started.
 
-**⚠️ Resume caveat:** the E3 `agent()` call in the workflow script has no
-cached result (it was killed mid-flight, not completed), so a plain
-`resumeFromRunId` resume will re-dispatch a *fresh* E3 implementer into
-`ws-e-integration` — which now already contains the WIP E3 commit above. That
-fresh agent may treat the task as done, redo it (duplicate/conflicting
-changes), or get confused about scope. Before blindly resuming: either (a)
-point a reviewer at commit `f9daddf` directly to judge whether it already
-satisfies Task E3 (read the spec at `docs/superpowers/plans/2026-07-10-gpm-e-integration.md`
-lines 395-702) and hand-carry the pipeline forward from there, or (b) `git
-reset --hard 3a4610f` on `ws-e-integration` to discard the WIP commit and let
-the resumed E3 agent start clean. Don't just fire `resumeFromRunId` and walk
-away.
-
 Watch what actually happened via
 `C:\Users\Rafael\.claude\projects\C--Users-Rafael-Documents-Game-Priority-Manager--GPM-\9a992ccd-fde0-4643-9892-caf99b10939a\subagents\workflows\wf_db33b133-d57\journal.jsonl`
 (one `"started"` entry with no matching `"result"` = the killed E3 attempt).
+</details>
 
 ## What's being built
 
@@ -86,11 +102,21 @@ fix/re-review rounds if the reviewer isn't satisfied. A track that can't get
 a task approved after that stops itself and is reported as blocked rather
 than pushing forward broken.
 
-To resume after this pause:
-`Workflow({scriptPath: "C:\Users\Rafael\.claude\projects\C--Users-Rafael-Documents-Game-Priority-Manager--GPM-\9a992ccd-fde0-4643-9892-caf99b10939a\workflows\scripts\gpm-execute-plans-wf_db33b133-d57.js", resumeFromRunId: "wf_db33b133-d57"})`
-— completed agent() calls are cached and won't re-run. Read the "Resume
-caveat" in the Status section above first — the one call that WILL re-run
-(E3's implementer) needs a decision before you fire this.
+The original run (`wf_db33b133-d57`, script `gpm-execute-plans-wf_db33b133-d57.js`)
+covered Foundation through E3 and is superseded — do not resume it (see
+Status section: its E3 `agent()` call has no cached result and would
+re-dispatch a redundant implementer). E4 onward runs from a **new** workflow,
+`gpm-execute-e4-onward`, launched 2026-07-11, task ID `w771ykh73`, run ID
+`wf_ae8069ce-6f7`, script at
+`C:\Users\Rafael\AppData\Local\Temp\claude\C--Users-Rafael-Documents-Game-Priority-Manager--GPM-\a0c1828f-c4ba-4fb0-8f38-9845f8558bb1\scratchpad\gpm-execute-e4-onward.js`
+(note: under the session-scratchpad temp dir, not the repo — may not survive
+a machine-wide temp cleanup; the script content is also embedded in this
+conversation's history if it needs to be recreated). It reuses the same
+per-task implement→review→fix mechanics and the same final-review lenses as
+the original script, running E4 → E5 → E6 → merge `ws-e-integration` into
+`gpm-mvp` → 4-lens final review → one fix pass for Critical/Important
+findings. To resume after an interruption:
+`Workflow({scriptPath: "<path above>", resumeFromRunId: "wf_ae8069ce-6f7"})`.
 
 ## Task status
 
@@ -121,8 +147,8 @@ Legend: ⬜ not started · 🔄 in progress · ✅ approved+merged · ⚠️ blo
 ### Phase E — Integration (`ws-e-integration`, all of A–D now merged in)
 - ✅ E1 ElevationLauncher+`--apply`+composition root
 - ✅ E2 Manual games+exe verification
-- ⚠️ E3 Settings/IO column/rescan/icons — **WIP, committed but unreviewed** (commit `f9daddf`, builds clean, 98/98 tests pass, never went through the reviewer). See resume caveat above before continuing.
-- ⬜ E4 GPM.Probe
+- ✅ E3 Settings/IO column/rescan/icons — hand-reviewed against spec (commit `f9daddf`), 2 real bugs found and fixed (commit `00aa6d3`: icon-extraction exception guard, theme-watcher/manual-theme conflict). Build clean, 98/98 tests pass. Approved.
+- 🔄 E4 GPM.Probe
 - ⬜ E5 manual-smoke-test.md (doc only, not executed by an agent)
 - ⬜ E6 Portable release build
 - ⬜ Merge into `gpm-mvp`
