@@ -119,6 +119,19 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public async Task load_notifies_visible_rows_so_ui_binding_refreshes()
+    {
+        var svc = new InMemoryPriorityService();
+        var vm = Make(svc, false, G("ELDEN RING", @"C:\g\er.exe"));
+
+        var raised = false;
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.VisibleRows)) raised = true; };
+        await vm.LoadAsync();
+
+        Assert.True(raised); // WPF's ListView binds VisibleRows; without this it never re-queries Rows
+    }
+
+    [Fact]
     public async Task search_filters_visible_rows_by_name()
     {
         var svc = new InMemoryPriorityService();

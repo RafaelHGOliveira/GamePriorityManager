@@ -129,6 +129,7 @@ public sealed partial class MainViewModel(
         }
 
         RecountPending();
+        OnPropertyChanged(nameof(VisibleRows)); // Rows is mutated in place; WPF's binding needs an explicit nudge to re-query it
     }
 
     private static string ExeChoiceKey(Game g) => $"{g.Store}:{g.StoreId ?? g.InstallDir ?? g.Name}";
