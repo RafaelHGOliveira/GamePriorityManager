@@ -30,15 +30,19 @@ public sealed class SteamSource(IStoreRegistry registry) : IGameSource
             if (!Directory.Exists(steamapps)) continue;
             foreach (var acf in Directory.EnumerateFiles(steamapps, "appmanifest_*.acf"))
             {
-                var app = SteamManifests.ParseAppManifest(File.ReadAllText(acf));
-                if (app is null) continue;
-                games.Add(new Game
+                try
                 {
-                    Name = app.Value.Name,
-                    Store = GameStore.Steam,
-                    StoreId = app.Value.AppId,
-                    InstallDir = Path.Combine(steamapps, "common", app.Value.InstallDir),
-                });
+                    var app = SteamManifests.ParseAppManifest(File.ReadAllText(acf));
+                    if (app is null) continue;
+                    games.Add(new Game
+                    {
+                        Name = app.Value.Name,
+                        Store = GameStore.Steam,
+                        StoreId = app.Value.AppId,
+                        InstallDir = Path.Combine(steamapps, "common", app.Value.InstallDir),
+                    });
+                }
+                catch (IOException) { /* one unreadable manifest never breaks the scan */ }
             }
         }
         return games;

@@ -22,6 +22,7 @@ public static class VdfParser
             if (text[pos] == '}') { pos++; return; }
             var key = ReadString(text, ref pos);
             SkipWhitespace(text, ref pos);
+            if (pos >= text.Length) return; // truncated after key: stop gracefully
             if (text[pos] == '{')
             {
                 pos++;
@@ -45,13 +46,13 @@ public static class VdfParser
     {
         pos++; // opening quote
         var sb = new StringBuilder();
-        while (t[pos] != '"')
+        while (pos < t.Length && t[pos] != '"')
         {
-            if (t[pos] == '\\') pos++; // unescape \" and \\
+            if (t[pos] == '\\' && pos + 1 < t.Length) pos++; // unescape \" and \\
             sb.Append(t[pos]);
             pos++;
         }
-        pos++; // closing quote
+        if (pos < t.Length) pos++; // closing quote
         return sb.ToString();
     }
 }

@@ -41,4 +41,27 @@ public class SteamManifestTests
     {
         Assert.Null(SteamManifests.ParseAppManifest("\"AppState\"\n{\n\t\"appid\"\t\t\"1\"\n}"));
     }
+
+    [Theory]
+    // Truncated mid-string, mid-key, mid-value, and unterminated block: a
+    // partially-written .acf (common while Steam is mid-download/update) must
+    // never throw — it returns null so ScanRoot skips only that one file.
+    [InlineData("\"AppState\"\n{\n\t\"appid\"\t\t\"124")]
+    [InlineData("\"AppState\"\n{\n\t\"appid")]
+    [InlineData("\"AppState\"\n{\n\t\"appid\"")]
+    [InlineData("\"AppState\"\n{\n")]
+    [InlineData("")]
+    public void truncated_manifest_returns_null_without_throwing(string acfText)
+    {
+        Assert.Null(SteamManifests.ParseAppManifest(acfText));
+    }
+
+    [Fact]
+    public void vdf_parser_does_not_throw_on_truncated_input()
+    {
+        // Parser must degrade gracefully rather than throw IndexOutOfRangeException.
+        var root = VdfParser.Parse("\"outer\"\n{\n\t\"key\"\t\t\"val");
+        var outer = (Dictionary<string, object>)root["outer"];
+        Assert.Equal("val", outer["key"]);
+    }
 }
