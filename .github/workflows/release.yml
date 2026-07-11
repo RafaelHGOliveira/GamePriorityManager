@@ -25,15 +25,27 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Untrusted inputs (workflow_dispatch input, ref name) are bound to env vars
+      # instead of interpolated into the script, so the shell treats them as data,
+      # never code. The format check is a second line of defence.
       - name: Resolve version
         id: ver
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
           else
-            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            VERSION="$REF_NAME"
           fi
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version '$VERSION' (expected vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: dotnet build GamePriorityManager.sln -c Release
@@ -54,16 +66,17 @@ jobs:
       - name: Package and hash
         id: pkg
         shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          V="${{ steps.ver.outputs.version }}"
-          mv out/release/GPM.App.exe "out/release/GPM-$V.exe"
-          SHA=$(sha256sum "out/release/GPM-$V.exe" | cut -d' ' -f1)
-          SIZE=$(( $(stat -c%s "out/release/GPM-$V.exe") / 1024 / 1024 ))
+          mv out/release/GPM.App.exe "out/release/GPM-$VERSION.exe"
+          SHA=$(sha256sum "out/release/GPM-$VERSION.exe" | cut -d' ' -f1)
+          SIZE=$(( $(stat -c%s "out/release/GPM-$VERSION.exe") / 1024 / 1024 ))
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "size=${SIZE} MB" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
           name: GPM ${{ steps.ver.outputs.version }}
