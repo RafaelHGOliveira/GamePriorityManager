@@ -34,6 +34,7 @@ public sealed class SteamSource(IStoreRegistry registry) : IGameSource
                 {
                     var app = SteamManifests.ParseAppManifest(File.ReadAllText(acf));
                     if (app is null) continue;
+                    if (SteamManifests.IsNonGameApp(app.Value.Name)) continue; // skip redists/runtimes/Proton
                     games.Add(new Game
                     {
                         Name = app.Value.Name,

@@ -36,6 +36,23 @@ public class SteamManifestTests
         Assert.Equal(("1245620", "ELDEN RING", "ELDEN RING"), app);
     }
 
+    [Theory]
+    [InlineData("Steamworks Common Redistributables")]
+    [InlineData("Steam Linux Runtime 3.0 (sniper)")]
+    [InlineData("Proton")]
+    [InlineData("Proton Experimental")]
+    [InlineData("Proton 9.0 (Beta)")]
+    [InlineData("Proton EasyAntiCheat Runtime")]
+    public void non_game_tools_are_recognised(string name) =>
+        Assert.True(SteamManifests.IsNonGameApp(name));
+
+    [Theory]
+    [InlineData("ELDEN RING")]
+    [InlineData("Protonwar")]   // real game — the "Proton " space guard must not catch it
+    [InlineData("Counter-Strike 2")]
+    public void real_games_are_not_treated_as_tools(string name) =>
+        Assert.False(SteamManifests.IsNonGameApp(name));
+
     [Fact]
     public void malformed_manifest_returns_null()
     {

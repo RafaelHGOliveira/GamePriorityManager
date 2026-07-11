@@ -24,6 +24,9 @@ public class SteamSourceTests
             "\"AppState\"\n{\n\t\"appid\"\t\"1245620\"\n\t\"name\"\t\"ELDEN RING\"\n\t\"installdir\"\t\"ELDEN RING\"\n}");
         File.WriteAllText(Path.Combine(libDir, "steamapps", "appmanifest_730.acf"),
             "\"AppState\"\n{\n\t\"appid\"\t\"730\"\n\t\"name\"\t\"Counter-Strike 2\"\n\t\"installdir\"\t\"Counter-Strike Global Offensive\"\n}");
+        // A non-game tool Steam installs like any app — must be excluded from the scan.
+        File.WriteAllText(Path.Combine(root, "steamapps", "appmanifest_228980.acf"),
+            "\"AppState\"\n{\n\t\"appid\"\t\"228980\"\n\t\"name\"\t\"Steamworks Common Redistributables\"\n\t\"installdir\"\t\"Steamworks Shared\"\n}");
         return root;
     }
 
@@ -33,7 +36,8 @@ public class SteamSourceTests
         var root = MakeSteamTree(out var lib);
         var games = SteamSource.ScanRoot(root);
 
-        Assert.Equal(2, games.Count);
+        Assert.Equal(2, games.Count); // ELDEN RING + CS2; the redist manifest is excluded
+        Assert.DoesNotContain(games, g => g.StoreId == "228980");
         var er = games.Single(g => g.StoreId == "1245620");
         Assert.Equal("ELDEN RING", er.Name);
         Assert.Equal(GameStore.Steam, er.Store);

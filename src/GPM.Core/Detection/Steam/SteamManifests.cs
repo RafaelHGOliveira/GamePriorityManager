@@ -13,6 +13,17 @@ public static class SteamManifests
             .ToList();
     }
 
+    /// Valve ships tools/redistributables (redist packages, Linux runtimes, Proton)
+    /// through the same appmanifest mechanism as games. They clutter the list and have
+    /// no game exe to prioritize. Matched by name — stable across versions, unlike the
+    /// ever-growing set of appids. The trailing space on "Proton " is deliberate: it
+    /// keeps real games like "Protonwar" from being filtered out.
+    public static bool IsNonGameApp(string name) =>
+        name.Equals("Steamworks Common Redistributables", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("Steam Linux Runtime", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("Proton", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("Proton ", StringComparison.OrdinalIgnoreCase);
+
     public static (string AppId, string Name, string InstallDir)? ParseAppManifest(string acfText)
     {
         if (VdfParser.Parse(acfText).Values.FirstOrDefault()
