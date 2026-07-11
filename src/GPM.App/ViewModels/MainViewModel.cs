@@ -46,6 +46,8 @@ public sealed partial class MainViewModel(
         // resolve exes, then group rows by filename so linked rows share ONE state
         var resolved = games.Select(g =>
         {
+            if (cfg.ExeChoices.TryGetValue(ExeChoiceKey(g), out var chosen) && File.Exists(chosen))
+                return g with { ExePath = chosen, NeedsExeConfirmation = false, ExeCandidates = [] };
             var r = resolver.Resolve(g);
             return g with
             {
@@ -83,6 +85,39 @@ public sealed partial class MainViewModel(
         }
 
         RecountPending();
+    }
+
+    private static string ExeChoiceKey(Game g) => $"{g.Store}:{g.StoreId ?? g.InstallDir ?? g.Name}";
+
+    public async Task AddManualGameAsync(string exePath)
+    {
+        var cfg = config.Load();
+        cfg.ManualGames.Add(new Game
+        {
+            Name = Path.GetFileNameWithoutExtension(exePath),
+            Store = GameStore.Manual,
+            InstallDir = Path.GetDirectoryName(exePath),
+            ExePath = exePath,
+        });
+        config.Save(cfg);
+        await LoadAsync();
+    }
+
+    public async Task RemoveManualGameAsync(GameRowViewModel row)
+    {
+        if (row.Game.Store != GameStore.Manual) return;
+        var cfg = config.Load();
+        cfg.ManualGames.RemoveAll(g => g.ExePath == row.Game.ExePath);
+        config.Save(cfg);
+        await LoadAsync();
+    }
+
+    public async Task ConfirmExeAsync(GameRowViewModel row, string exePath)
+    {
+        var cfg = config.Load();
+        cfg.ExeChoices[ExeChoiceKey(row.Game)] = exePath;
+        config.Save(cfg);
+        await LoadAsync();
     }
 
     private ExeOverrideState GetOrCreateState(string exeName)

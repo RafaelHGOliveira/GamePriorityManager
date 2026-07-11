@@ -20,7 +20,7 @@
 
         <DockPanel Grid.Row="1" Margin="12,4,12,8">
             <ui:Button DockPanel.Dock="Right" Margin="8,0,0,0"
-                       Content="{x:Static app:Strings.AddGame}" />
+                       Content="{x:Static app:Strings.AddGame}" Click="OnAddGameClick" />
             <ui:TextBox PlaceholderText="{x:Static app:Strings.SearchPlaceholder}"
                         Icon="{ui:SymbolIcon Search24}"
                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
@@ -51,6 +51,12 @@
                             <ui:SymbolIcon Symbol="Bug24" Margin="4,0,0,0" Foreground="OrangeRed"
                                            Visibility="{Binding State.HasDebugger, Converter={StaticResource BoolToVis}}"
                                            ToolTip="{x:Static app:Strings.DebuggerWarning}" />
+                            <ui:Button Margin="6,0,0,0" Padding="6,0" FontSize="11"
+                                       Content="{x:Static app:Strings.VerifyExe}" Click="OnVerifyExeClick"
+                                       Visibility="{Binding NeedsExeConfirmation, Converter={StaticResource BoolToVis}}" />
+                            <ui:Button Margin="6,0,0,0" Padding="6,0"
+                                       Icon="{ui:SymbolIcon Dismiss24}" Click="OnRemoveGameClick"
+                                       Visibility="{Binding IsManual, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                         <ComboBox Grid.Column="3"
                                   ItemsSource="{x:Static vm:PriorityOptions.Cpu}"
