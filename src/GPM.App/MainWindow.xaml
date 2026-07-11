@@ -7,6 +7,56 @@
         Title="{x:Static app:Strings.AppTitle}"
         Width="900" Height="620" WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica">
+    <ui:FluentWindow.Resources>
+        <!-- Row container: stretch content full width (fixes name/store collision),
+             rounded hover/selection, comfortable vertical rhythm. -->
+        <Style x:Key="GameRowStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Padding" Value="8,7" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Border x:Name="Bd" CornerRadius="6" Background="Transparent"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background"
+                                        Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background"
+                                        Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Column header caption above the list. -->
+        <Style x:Key="ColHeaderStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Store shown as a subtle pill instead of repeated plain text. -->
+        <Style x:Key="StorePillStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+    </ui:FluentWindow.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />  <!-- title bar -->
@@ -23,7 +73,10 @@
                        Content="{x:Static app:Strings.AddGame}" Click="OnAddGameClick" />
             <ui:Button DockPanel.Dock="Right" Margin="8,0,0,0" Icon="{ui:SymbolIcon ArrowClockwise24}"
                        Command="{Binding RescanCommand}" />
-            <ToggleButton DockPanel.Dock="Right" Margin="8,0,0,0" x:Name="SettingsToggle" Content="⚙" />
+            <ToggleButton DockPanel.Dock="Right" Margin="8,0,0,0" x:Name="SettingsToggle"
+                          ToolTip="{x:Static app:Strings.Settings_Theme}">
+                <ui:SymbolIcon Symbol="Settings24" />
+            </ToggleButton>
             <Popup PlacementTarget="{Binding ElementName=SettingsToggle}" Placement="Bottom" StaysOpen="False"
                    IsOpen="{Binding IsChecked, ElementName=SettingsToggle, Mode=TwoWay}">
                 <Border Background="{DynamicResource ApplicationBackgroundBrush}" Padding="12" CornerRadius="8">
@@ -49,11 +102,45 @@
                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
         </DockPanel>
 
-        <ListView Grid.Row="2" Margin="12,0" ItemsSource="{Binding VisibleRows}"
-                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <Border Grid.Row="2" Margin="12,4,12,4" CornerRadius="8"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />  <!-- header -->
+                    <RowDefinition Height="Auto" />  <!-- divider -->
+                    <RowDefinition Height="*" />     <!-- rows -->
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="16,10,16,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="24" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="1" Text="GAME" Style="{StaticResource ColHeaderStyle}" />
+                    <TextBlock Grid.Column="2" Text="SOURCE" Style="{StaticResource ColHeaderStyle}" />
+                    <TextBlock Grid.Column="3" Text="EXECUTABLE" Style="{StaticResource ColHeaderStyle}" />
+                    <TextBlock Grid.Column="4" Text="CPU" Style="{StaticResource ColHeaderStyle}" />
+                    <TextBlock Grid.Column="5" Text="I/O" Width="120" Margin="4,0,0,0"
+                               Style="{StaticResource ColHeaderStyle}"
+                               Visibility="{Binding ShowIoColumn, Converter={StaticResource BoolToVis}}" />
+                </Grid>
+
+                <Border Grid.Row="1" Height="1" Margin="8,0"
+                        Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+                <ListView Grid.Row="2" Margin="8,4,8,8" Padding="0" ItemsSource="{Binding VisibleRows}"
+                          Background="Transparent" BorderThickness="0"
+                          ItemContainerStyle="{StaticResource GameRowStyle}"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListView.ItemTemplate>
                 <DataTemplate DataType="{x:Type vm:GameRowViewModel}">
-                    <Grid Margin="0,2">
+                    <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="28" />   <!-- icon -->
                             <ColumnDefinition Width="*" />    <!-- name -->
@@ -65,10 +152,17 @@
                         </Grid.ColumnDefinitions>
                         <Image Grid.Column="0" Width="20" Height="20"
                                Source="{Binding Game.ExePath, Converter={StaticResource ExeIcon}}" />
-                        <TextBlock Grid.Column="1" Text="{Binding Game.Name}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="2" Text="{Binding Game.Store}" Opacity="0.6" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Game.Name}" VerticalAlignment="Center"
+                                   FontWeight="Medium" TextTrimming="CharacterEllipsis" Margin="0,0,12,0"
+                                   ToolTip="{Binding Game.Name}" />
+                        <Border Grid.Column="2" Style="{StaticResource StorePillStyle}">
+                            <TextBlock Text="{Binding Game.Store}" FontSize="11"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </Border>
                         <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding State.ExeName}" Opacity="0.6" />
+                            <TextBlock Text="{Binding State.ExeName}"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       TextTrimming="CharacterEllipsis" />
                             <ui:SymbolIcon Symbol="Link24" Margin="4,0,0,0"
                                            Visibility="{Binding IsLinked, Converter={StaticResource BoolToVis}}"
                                            ToolTip="{x:Static app:Strings.LinkedRowsTooltip}" />
@@ -102,7 +196,9 @@
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>
-        </ListView>
+                </ListView>
+            </Grid>
+        </Border>
 
         <Expander Grid.Row="3" Margin="12,4" IsExpanded="False">
             <Expander.Header>
@@ -133,18 +229,21 @@
             </ItemsControl>
         </Expander>
 
-        <DockPanel Grid.Row="4" Margin="12,8,12,12">
-            <ui:Button DockPanel.Dock="Right" Appearance="Primary"
-                       Icon="{ui:SymbolIcon ShieldCheckmark24}"
-                       Content="{x:Static app:Strings.Apply}"
-                       Command="{Binding ApplyCommand}" />
-            <ui:Button DockPanel.Dock="Right" Margin="0,0,8,0"
-                       Content="{x:Static app:Strings.Discard}"
-                       Command="{Binding DiscardCommand}" />
-            <TextBlock VerticalAlignment="Center">
-                <Run Text="{Binding PendingCount, Mode=OneWay}" /> <Run Text="pending" />
-                <Run Text="{Binding StatusMessage, Mode=OneWay}" Foreground="Orange" />
-            </TextBlock>
-        </DockPanel>
+        <Border Grid.Row="4" BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}">
+            <DockPanel Margin="16,10,12,12">
+                <ui:Button DockPanel.Dock="Right" Appearance="Primary"
+                           Icon="{ui:SymbolIcon ShieldCheckmark24}"
+                           Content="{x:Static app:Strings.Apply}"
+                           Command="{Binding ApplyCommand}" />
+                <ui:Button DockPanel.Dock="Right" Margin="0,0,8,0"
+                           Content="{x:Static app:Strings.Discard}"
+                           Command="{Binding DiscardCommand}" />
+                <TextBlock VerticalAlignment="Center">
+                    <Run Text="{Binding PendingCount, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" pending" />
+                    <Run Text="{Binding StatusMessage, Mode=OneWay}" Foreground="Orange" />
+                </TextBlock>
+            </DockPanel>
+        </Border>
     </Grid>
 </ui:FluentWindow>
