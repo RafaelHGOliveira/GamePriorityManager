@@ -17,9 +17,21 @@ public sealed class PriorityService(IRegistryRoot ifeo) : IPriorityService
 
     public IReadOnlyList<PriorityOverride> ReadAll() =>
         ifeo.GetSubKeyNames()
-            .Select(Read)
+            .Select(TryRead)
+            .OfType<PriorityOverride>()
             .Where(o => o.Cpu is not null || o.Io is not null)
             .ToList();
+
+    // Some IFEO subkeys deny read access to a non-admin user; one of them must not
+    // take the whole listing (and the app's startup load) down with it.
+    private PriorityOverride? TryRead(string exeName)
+    {
+        try { return Read(exeName); }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     public void Write(string exeName, int? cpu, int? io)
     {

@@ -96,3 +96,29 @@ public sealed class PriorityServiceTests : IDisposable
         Assert.False(all.Single(o => o.ExeName == "b.exe").HasDebugger);
     }
 }
+
+public class PriorityServiceUnreadableKeyTests
+{
+    /// One subkey ("locked.exe") throws like an IFEO key the current user can't read.
+    private sealed class PartlyLockedRoot : IRegistryRoot
+    {
+        public IReadOnlyList<string> GetSubKeyNames() => ["locked.exe", "game.exe"];
+        public IReadOnlyList<string> GetValueNames(string subKey) =>
+            subKey.StartsWith("locked") ? throw new System.Security.SecurityException() : [];
+        public int? GetDword(string subKey, string valueName) =>
+            subKey.StartsWith("locked") ? throw new UnauthorizedAccessException()
+            : valueName == PriorityValues.CpuValueName ? 3 : null;
+        public void SetDword(string subKey, string valueName, int value) => throw new NotSupportedException();
+        public void DeleteValue(string subKey, string valueName) => throw new NotSupportedException();
+        public void DeleteSubKeyIfEmpty(string subKey) => throw new NotSupportedException();
+        public bool KeyExists(string subKey) => true;
+    }
+
+    [Fact]
+    public void read_all_skips_keys_the_user_cannot_read()
+    {
+        var all = new PriorityService(new PartlyLockedRoot()).ReadAll();
+
+        Assert.Equal("game.exe", Assert.Single(all).ExeName);
+    }
+}
