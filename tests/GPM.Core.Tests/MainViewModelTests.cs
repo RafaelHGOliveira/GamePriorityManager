@@ -119,16 +119,15 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task load_notifies_visible_rows_so_ui_binding_refreshes()
+    public async Task visible_rows_view_reflects_each_load()
     {
         var svc = new InMemoryPriorityService();
         var vm = Make(svc, false, G("ELDEN RING", @"C:\g\er.exe"));
 
-        var raised = false;
-        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.VisibleRows)) raised = true; };
+        Assert.Empty(vm.VisibleRows.Cast<GameRowViewModel>()); // view created before the load
         await vm.LoadAsync();
 
-        Assert.True(raised); // WPF's ListView binds VisibleRows; without this it never re-queries Rows
+        Assert.Single(vm.VisibleRows.Cast<GameRowViewModel>()); // the plain backing list needs an explicit Refresh
     }
 
     [Fact]
@@ -139,7 +138,10 @@ public class MainViewModelTests
         await vm.LoadAsync();
 
         vm.SearchText = "elden";
-        Assert.Equal("ELDEN RING", Assert.Single(vm.VisibleRows).Game.Name);
+        Assert.Equal("ELDEN RING", Assert.Single(vm.VisibleRows.Cast<GameRowViewModel>()).Game.Name);
+
+        vm.SearchText = "";
+        Assert.Equal(2, vm.VisibleRows.Cast<GameRowViewModel>().Count());
     }
 
     [Fact]

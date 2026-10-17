@@ -9,8 +9,6 @@
                 <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
-            <BooleanToVisibilityConverter x:Key="BoolToVis" />
-            <app:ExeIconConverter x:Key="ExeIcon" />
-        </ResourceDictionary>
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />        </ResourceDictionary>
     </Application.Resources>
 </Application>

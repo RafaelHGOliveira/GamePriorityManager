@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Text.Json;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GPM.App.Services;
@@ -24,12 +26,19 @@ public sealed partial class MainViewModel(
 
     private readonly Dictionary<string, ExeOverrideState> _states = new(StringComparer.OrdinalIgnoreCase);
 
-    public ObservableCollection<GameRowViewModel> Rows { get; } = [];
+    private readonly List<GameRowViewModel> _rows = [];
+    private ListCollectionView? _visibleRows;
+    private int _loadVersion;
+
+    public IReadOnlyList<GameRowViewModel> Rows => _rows;
     public ObservableCollection<OverrideRowViewModel> OtherOverrides { get; } = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(VisibleRows))]
     private string searchText = "";
+
+    // Filtering a view keeps the ListView's containers; swapping in a new list per
+    // keystroke made it rebuild every row.
+    partial void OnSearchTextChanged(string value) => VisibleRows.Refresh();
 
     [ObservableProperty] private int pendingCount;
     [ObservableProperty] private string? statusMessage;
@@ -59,13 +68,15 @@ public sealed partial class MainViewModel(
     [RelayCommand]
     private Task RescanAsync() => LoadAsync(forceScan: true);
 
-    public IReadOnlyList<GameRowViewModel> VisibleRows =>
-        string.IsNullOrWhiteSpace(SearchText)
-            ? Rows.ToList()
-            : Rows.Where(r => r.Game.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase)).ToList();
+    public ICollectionView VisibleRows => _visibleRows ??= new ListCollectionView(_rows)
+    {
+        Filter = o => string.IsNullOrWhiteSpace(SearchText) ||
+                      ((GameRowViewModel)o).Game.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase),
+    };
 
     public async Task LoadAsync(bool forceScan = false)
     {
+        var version = ++_loadVersion;
         var cfg = config.Load();
         _loadingSettings = true;
         ShowIoColumn = cfg.ShowIoColumn;
@@ -73,77 +84,128 @@ public sealed partial class MainViewModel(
         Theme = cfg.Theme;
         _loadingSettings = false;
 
-        List<Game> detected;
-        if (!forceScan && cfg.DetectedGames.Count > 0)
-        {
-            detected = cfg.DetectedGames; // cache (spec: cached in games.json)
-        }
-        else
+        var fromCache = !forceScan && cfg.DetectedGames.Count > 0; // spec: cached in games.json
+        var detected = cfg.DetectedGames;
+        if (!fromCache)
         {
             StatusMessage = string.Format(Strings.ScanProgress, "stores"); // simplified per-store progress
             detected = (await scanGames()).ToList();
-            cfg.DetectedGames = detected;
-            config.Save(cfg);
             StatusMessage = null;
         }
 
-        // Non-game Steam tools (redistributables, runtimes, Proton) may still sit in an
-        // older games.json cache that was written before they were filtered at scan time.
-        // Drop them here too so they never appear regardless of cache vs. fresh scan, and
-        // heal the cache so it only happens once.
-        var withoutTools = detected.Where(g => !SteamManifests.IsNonGameApp(g.Name)).ToList();
-        if (withoutTools.Count != detected.Count)
+        // Exe resolution walks every install dir and the IFEO reads hit the registry:
+        // both are far too slow for the UI thread.
+        var snapshot = await Task.Run(() => BuildSnapshot(cfg, detected, fromCache));
+        if (version != _loadVersion) return; // a newer load superseded this one
+
+        if (snapshot.CacheChanged)
         {
-            detected = withoutTools;
-            cfg.DetectedGames = detected;
-            config.Save(cfg);
+            var latest = config.Load(); // settings may have changed while we were off-thread
+            latest.DetectedGames = snapshot.Detected;
+            config.Save(latest);
         }
 
-        var games = detected.Concat(cfg.ManualGames).ToList();
-
-        // resolve exes, then group rows by filename so linked rows share ONE state
-        var resolved = games.Select(g =>
-        {
-            if (cfg.ExeChoices.TryGetValue(ExeChoiceKey(g), out var chosen) && File.Exists(chosen))
-                return g with { ExePath = chosen, NeedsExeConfirmation = false, ExeCandidates = [] };
-            var r = resolver.Resolve(g);
-            return g with
-            {
-                ExePath = r.ExePath ?? g.ExePath,
-                NeedsExeConfirmation = r.NeedsConfirmation,
-                ExeCandidates = r.Candidates,
-            };
-        }).ToList();
-
-        var linkCounts = resolved.Where(g => g.ExeName is not null)
+        // group rows by filename so linked rows share ONE state
+        var linkCounts = snapshot.Games.Where(g => g.ExeName is not null)
             .GroupBy(g => g.ExeName!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-        Rows.Clear();
+        _rows.Clear();
         _states.Clear();
-        foreach (var game in resolved.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var game in snapshot.Games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
         {
             ExeOverrideState? state = null;
             if (game.ExeName is string exe)
             {
-                state = GetOrCreateState(exe);
+                state = GetOrCreateState(snapshot.GameOverrides[exe]);
             }
-            Rows.Add(new GameRowViewModel(game, state, state is null ? 0 : linkCounts[game.ExeName!]));
+            _rows.Add(new GameRowViewModel(game, state, state is null ? 0 : linkCounts[game.ExeName!]));
         }
 
-        // Other overrides: everything in IFEO with an override that isn't a detected game
         OtherOverrides.Clear();
-        var gameExes = new HashSet<string>(_states.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach (var o in priorities.ReadAll().Where(o => !gameExes.Contains(o.ExeName)))
+        foreach (var o in snapshot.OtherOverrides)
         {
-            var state = GetOrCreateState(o.ExeName);
+            var state = GetOrCreateState(o);
             OtherOverrides.Add(new OverrideRowViewModel(state,
                 isOrphaned: cfg.ManagedExes.Contains(o.ExeName),
                 hasDebugger: o.HasDebugger));
         }
 
         RecountPending();
-        OnPropertyChanged(nameof(VisibleRows)); // Rows is mutated in place; WPF's binding needs an explicit nudge to re-query it
+        VisibleRows.Refresh(); // _rows is a plain list; the view has to be told it changed
+    }
+
+    private sealed record LoadSnapshot(
+        List<Game> Detected,
+        bool CacheChanged,
+        List<Game> Games,
+        Dictionary<string, PriorityOverride> GameOverrides,
+        List<PriorityOverride> OtherOverrides);
+
+    /// Runs off the UI thread: touches only the file system, the registry and its arguments.
+    private LoadSnapshot BuildSnapshot(GpmConfig cfg, List<Game> detected, bool fromCache)
+    {
+        var cacheChanged = !fromCache;
+
+        // Non-game Steam tools (redistributables, runtimes, Proton) may still sit in an
+        // older games.json cache that was written before they were filtered at scan time.
+        // Drop them here too so they never appear regardless of cache vs. fresh scan, and
+        // heal the cache so it only happens once.
+        var withoutTools = detected.Where(g => !SteamManifests.IsNonGameApp(g.Name)).ToList();
+        if (withoutTools.Count != detected.Count) cacheChanged = true;
+
+        // The resolved exe is cached in games.json, so the install-dir walk only runs
+        // after a rescan, or when the cached exe is gone (game updated, moved, uninstalled).
+        var cached = new List<Game>();
+        var games = new List<Game>();
+        foreach (var original in withoutTools)
+        {
+            var g = original;
+            if (fromCache && g.ExePath is not null && !File.Exists(g.ExePath))
+            {
+                g = g with { ExePath = null, NeedsExeConfirmation = false, ExeCandidates = [] };
+                cacheChanged = true;
+            }
+            if (TryApplyChoice(cfg, g) is { } chosen)
+            {
+                cached.Add(g);
+                games.Add(chosen);
+                continue;
+            }
+            if (g.ExePath is null)
+            {
+                g = ApplyResolution(g);
+                cacheChanged |= g.ExePath is not null;
+            }
+            cached.Add(g);
+            games.Add(g);
+        }
+        games.AddRange(cfg.ManualGames.Select(g => TryApplyChoice(cfg, g) ?? ApplyResolution(g)));
+
+        var gameOverrides = games.Select(g => g.ExeName).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(exe => exe, priorities.Read, StringComparer.OrdinalIgnoreCase);
+
+        // Other overrides: everything in IFEO with an override that isn't a detected game
+        var others = priorities.ReadAll().Where(o => !gameOverrides.ContainsKey(o.ExeName)).ToList();
+
+        return new LoadSnapshot(cached, cacheChanged, games, gameOverrides, others);
+    }
+
+    private static Game? TryApplyChoice(GpmConfig cfg, Game g) =>
+        cfg.ExeChoices.TryGetValue(ExeChoiceKey(g), out var chosen) && File.Exists(chosen)
+            ? g with { ExePath = chosen, NeedsExeConfirmation = false, ExeCandidates = [] }
+            : null;
+
+    private Game ApplyResolution(Game g)
+    {
+        var r = resolver.Resolve(g);
+        return g with
+        {
+            ExePath = r.ExePath ?? g.ExePath,
+            NeedsExeConfirmation = r.NeedsConfirmation,
+            ExeCandidates = r.Candidates,
+        };
     }
 
     private static string ExeChoiceKey(Game g) => $"{g.Store}:{g.StoreId ?? g.InstallDir ?? g.Name}";
@@ -179,11 +241,10 @@ public sealed partial class MainViewModel(
         await LoadAsync();
     }
 
-    private ExeOverrideState GetOrCreateState(string exeName)
+    private ExeOverrideState GetOrCreateState(PriorityOverride actual)
     {
-        if (_states.TryGetValue(exeName, out var existing)) return existing;
-        var actual = priorities.Read(exeName);
-        var state = new ExeOverrideState(exeName, actual.Cpu, actual.Io) { HasDebugger = actual.HasDebugger };
+        if (_states.TryGetValue(actual.ExeName, out var existing)) return existing;
+        var state = new ExeOverrideState(actual.ExeName, actual.Cpu, actual.Io) { HasDebugger = actual.HasDebugger };
         state.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ExeOverrideState.IsDirty)) RecountPending();
