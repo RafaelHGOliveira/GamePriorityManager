@@ -92,6 +92,9 @@ jobs:
             | SHA256 | `${{ steps.pkg.outputs.sha }}` |
 
             **Note:** the exe is unsigned, so SmartScreen/antivirus may warn on first
-            run. GPM only writes `CpuPriorityClass`/`IoPriority` under each exe's IFEO
-            `PerfOptions` key in the registry (HKLM) — nothing else — to set per-game
-            CPU/IO priority. Applying changes prompts for elevation (UAC).
+            run. GPM only writes two things in the registry. `CpuPriorityClass`/`IoPriority`
+            under each exe's IFEO `PerfOptions` key (HKLM) set per-game CPU/IO priority;
+            applying those prompts for elevation (UAC). The `GpuPreference`/`SwapEffectUpgradeEnable`
+            tokens in `HKCU\Software\Microsoft\DirectX\UserGpuPreferences` set per-game GPU
+            and windowed-optimization; those are written without elevation and every other
+            token there is left untouched.
