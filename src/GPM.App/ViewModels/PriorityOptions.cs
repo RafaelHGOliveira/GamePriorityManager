@@ -1,6 +1,7 @@
 namespace GPM.App.ViewModels;
 
 public sealed record PriorityOption(string Label, int? Value);
+public sealed record WindowedOption(string Label, bool? Value);
 
 public static class PriorityOptions
 {
@@ -21,5 +22,19 @@ public static class PriorityOptions
         new(Strings.Priority_Low, 1),
         new(Strings.Priority_Normal, 2),
         new(Strings.Priority_High, 3),
+    ];
+
+    public static readonly IReadOnlyList<PriorityOption> Gpu =
+    [
+        new(Strings.Gpu_Default, null),
+        new(Strings.Gpu_PowerSaving, 1),
+        new(Strings.Gpu_HighPerformance, 2),
+    ];
+
+    public static readonly IReadOnlyList<WindowedOption> Windowed =
+    [
+        new(Strings.Priority_Default, null),
+        new(Strings.Windowed_On, true),
+        new(Strings.Windowed_Off, false),
     ];
 }

@@ -25,6 +25,13 @@
   <data name="Priority_High" xml:space="preserve"><value>High</value></data>
   <data name="Priority_VeryLow" xml:space="preserve"><value>Very Low</value></data>
   <data name="Priority_Low" xml:space="preserve"><value>Low</value></data>
+  <data name="Gpu_Default" xml:space="preserve"><value>Windows default</value></data>
+  <data name="Gpu_PowerSaving" xml:space="preserve"><value>Power saving</value></data>
+  <data name="Gpu_HighPerformance" xml:space="preserve"><value>High performance</value></data>
+  <data name="Windowed_On" xml:space="preserve"><value>On</value></data>
+  <data name="Windowed_Off" xml:space="preserve"><value>Off</value></data>
+  <data name="ApplyCancelledGpuApplied" xml:space="preserve"><value>Apply cancelled — GPU changes were applied, CPU/I-O changes are still pending</value></data>
+  <data name="Settings_ShowWindowed" xml:space="preserve"><value>Show windowed optimizations column</value></data>
   <data name="Settings_ShowIo" xml:space="preserve"><value>Show I/O column</value></data>
   <data name="Settings_BetaSources" xml:space="preserve"><value>Beta sources (EA, Ubisoft)</value></data>
   <data name="Settings_Theme" xml:space="preserve"><value>Theme</value></data>

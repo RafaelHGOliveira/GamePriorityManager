@@ -323,6 +323,83 @@ namespace GPM.App
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Windows default.
+        /// </summary>
+        public static string Gpu_Default
+        {
+            get
+            {
+                return ResourceManager.GetString("Gpu_Default", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Power saving.
+        /// </summary>
+        public static string Gpu_PowerSaving
+        {
+            get
+            {
+                return ResourceManager.GetString("Gpu_PowerSaving", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to High performance.
+        /// </summary>
+        public static string Gpu_HighPerformance
+        {
+            get
+            {
+                return ResourceManager.GetString("Gpu_HighPerformance", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to On.
+        /// </summary>
+        public static string Windowed_On
+        {
+            get
+            {
+                return ResourceManager.GetString("Windowed_On", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Off.
+        /// </summary>
+        public static string Windowed_Off
+        {
+            get
+            {
+                return ResourceManager.GetString("Windowed_Off", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Apply cancelled — GPU changes were applied, CPU/I-O changes are still pending.
+        /// </summary>
+        public static string ApplyCancelledGpuApplied
+        {
+            get
+            {
+                return ResourceManager.GetString("ApplyCancelledGpuApplied", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Show windowed optimizations column.
+        /// </summary>
+        public static string Settings_ShowWindowed
+        {
+            get
+            {
+                return ResourceManager.GetString("Settings_ShowWindowed", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Show I/O column.
         /// </summary>
         public static string Settings_ShowIo

@@ -40,7 +40,7 @@ public class MainViewModelTests
 
     private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games) =>
         new(() => Task.FromResult<IReadOnlyList<Game>>(games),
-            new PassthroughResolver(), svc, new FakeLauncher(svc, declineUac), new TempConfigStore());
+            new PassthroughResolver(), svc, new FakeLauncher(svc, declineUac), new TempConfigStore(), TestGraphics.New());
 
     [Fact]
     public async Task load_builds_rows_and_reads_registry_state()
@@ -62,7 +62,7 @@ public class MainViewModelTests
         var svc = new InMemoryPriorityService();
         var vm = new MainViewModel(
             () => throw new InvalidOperationException("boom"),
-            new PassthroughResolver(), svc, new FakeLauncher(svc), new TempConfigStore());
+            new PassthroughResolver(), svc, new FakeLauncher(svc), new TempConfigStore(), TestGraphics.New());
 
         await vm.LoadAsync();
 
@@ -170,7 +170,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([G("CS2", @"C:\g\cs2.exe")]),
-            new PassthroughResolver(), svc, new FakeLauncher(svc), cfgStore);
+            new PassthroughResolver(), svc, new FakeLauncher(svc), cfgStore, TestGraphics.New());
         await vm.LoadAsync();
 
         Assert.Equal(2, vm.OtherOverrides.Count);

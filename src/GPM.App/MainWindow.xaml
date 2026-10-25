@@ -5,7 +5,7 @@
         xmlns:vm="clr-namespace:GPM.App.ViewModels"
         xmlns:app="clr-namespace:GPM.App"
         Title="{x:Static app:Strings.AppTitle}"
-        Width="900" Height="620" WindowStartupLocation="CenterScreen"
+        Width="1100" Height="620" WindowStartupLocation="CenterScreen"
         ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica">
     <ui:FluentWindow.Resources>
         <!-- Row container: stretch content full width (fixes name/store collision),
@@ -83,6 +83,8 @@
                     <StackPanel>
                         <CheckBox Content="{x:Static app:Strings.Settings_ShowIo}"
                                   IsChecked="{Binding ShowIoColumn}" />
+                        <CheckBox Content="{x:Static app:Strings.Settings_ShowWindowed}"
+                                  IsChecked="{Binding ShowWindowedColumn}" />
                         <CheckBox Content="{x:Static app:Strings.Settings_BetaSources}"
                                   IsChecked="{Binding BetaSourcesEnabled}" />
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
@@ -120,6 +122,8 @@
                         <ColumnDefinition Width="170" />
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="24" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="1" Text="GAME" Style="{StaticResource ColHeaderStyle}" />
@@ -129,6 +133,10 @@
                     <TextBlock Grid.Column="5" Text="I/O" Width="120" Margin="4,0,0,0"
                                Style="{StaticResource ColHeaderStyle}"
                                Visibility="{Binding ShowIoColumn, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Grid.Column="6" Text="GPU" Margin="4,0,0,0" Style="{StaticResource ColHeaderStyle}" />
+                    <TextBlock Grid.Column="7" Text="WINDOWED" Width="100" Margin="4,0,0,0"
+                               Style="{StaticResource ColHeaderStyle}"
+                               Visibility="{Binding ShowWindowedColumn, Converter={StaticResource BoolToVis}}" />
                 </Grid>
 
                 <Border Grid.Row="1" Height="1" Margin="8,0"
@@ -148,6 +156,8 @@
                             <ColumnDefinition Width="170" />  <!-- exe -->
                             <ColumnDefinition Width="130" />  <!-- cpu -->
                             <ColumnDefinition Width="Auto" /> <!-- io (toggle) -->
+                            <ColumnDefinition Width="150" />  <!-- gpu -->
+                            <ColumnDefinition Width="Auto" /> <!-- windowed (toggle) -->
                             <ColumnDefinition Width="24" />   <!-- dirty -->
                         </Grid.ColumnDefinitions>
                         <Image Grid.Column="0" Width="20" Height="20"
@@ -190,9 +200,20 @@
                                   Visibility="{Binding DataContext.ShowIoColumn,
                                       RelativeSource={RelativeSource AncestorType=Window},
                                       Converter={StaticResource BoolToVis}}" />
-                        <TextBlock Grid.Column="6" Text="●" Foreground="#4cc2ff" VerticalAlignment="Center"
-                                   HorizontalAlignment="Center" ToolTip="{Binding State.LastError}"
-                                   Visibility="{Binding State.IsDirty, Converter={StaticResource BoolToVis}}" />
+                        <ComboBox Grid.Column="6" Margin="4,0,0,0"
+                                  ItemsSource="{x:Static vm:PriorityOptions.Gpu}"
+                                  DisplayMemberPath="Label" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Graphics.PendingGpu}" />
+                        <ComboBox Grid.Column="7" Width="100" Margin="4,0,0,0"
+                                  ItemsSource="{x:Static vm:PriorityOptions.Windowed}"
+                                  DisplayMemberPath="Label" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Graphics.PendingWindowed}"
+                                  Visibility="{Binding DataContext.ShowWindowedColumn,
+                                      RelativeSource={RelativeSource AncestorType=Window},
+                                      Converter={StaticResource BoolToVis}}" />
+                        <TextBlock Grid.Column="8" Text="●" Foreground="#4cc2ff" VerticalAlignment="Center"
+                                   HorizontalAlignment="Center" ToolTip="{Binding LastError}"
+                                   Visibility="{Binding IsDirty, Converter={StaticResource BoolToVis}}" />
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>

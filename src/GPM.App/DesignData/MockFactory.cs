@@ -1,9 +1,11 @@
 using System.IO;
 using GPM.App.Services;
 using GPM.App.ViewModels;
+using GPM.Core.Graphics;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
+using GPM.Core.Registry;
 using GPM.Core.Resolve;
 
 namespace GPM.App.DesignData;
@@ -50,7 +52,8 @@ public static class MockFactory
             new() { Name = "Some UE Game", Store = GameStore.Gog, ExePath = @"C:\mock\game.exe" }, // generic-name warning
         ];
         var vm = new MainViewModel(() => Task.FromResult(games),
-            new PassthroughResolver(), svc, new MockLauncher(svc), new MemoryConfigStore());
+            new PassthroughResolver(), svc, new MockLauncher(svc), new MemoryConfigStore(),
+            new GraphicsPreferenceService(new InMemoryStringValueStore()));
         _ = vm.LoadAsync();
         return vm;
     }
