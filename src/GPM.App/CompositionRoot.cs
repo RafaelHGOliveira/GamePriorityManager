@@ -3,6 +3,7 @@ using GPM.App.Services;
 using GPM.App.ViewModels;
 using GPM.Core.Detection;
 using GPM.Core.Detection.Steam;
+using GPM.Core.Graphics;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Registry;
@@ -39,7 +40,10 @@ public static class CompositionRoot
             resolver: new ExeResolver(KnownGames.LoadEmbedded()),
             priorities: CreatePriorityService(),
             elevation: new ElevationLauncher(),
-            config: config);
+            config: config,
+            graphics: new GraphicsPreferenceService(new RealStringValueStore(
+                RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64),
+                @"Software\Microsoft\DirectX\UserGpuPreferences")));
         _ = vm.LoadAsync(); // kick off the first scan; UI binds to Rows as it populates
         return vm;
     }

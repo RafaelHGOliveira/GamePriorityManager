@@ -4,7 +4,8 @@ using GPM.Core.Models;
 
 namespace GPM.App.ViewModels;
 
-public sealed class GameRowViewModel(Game game, ExeOverrideState? state, int linkedCount) : ObservableObject
+public sealed class GameRowViewModel(
+    Game game, ExeOverrideState? state, int linkedCount, GraphicsPreferenceState? graphics = null) : ObservableObject
 {
     private static readonly HashSet<string> GenericNames = new(StringComparer.OrdinalIgnoreCase)
         { "game.exe", "launcher.exe", "start.exe", "main.exe", "app.exe", "run.exe" };
@@ -15,6 +16,16 @@ public sealed class GameRowViewModel(Game game, ExeOverrideState? state, int lin
     public Game Game { get; } = game;
     /// null while the exe is unresolved (NeedsExeConfirmation without candidates).
     public ExeOverrideState? State { get; } = state;
+    /// Per exe PATH (not filename); null while the exe is unresolved.
+    public GraphicsPreferenceState? Graphics { get; } = graphics;
+    /// Either half of the row has an unapplied change (drives the dirty dot).
+    public bool IsDirty => State?.IsDirty == true || Graphics?.IsDirty == true;
+    public string? LastError => State?.LastError ?? Graphics?.LastError;
+    public void NotifyDirtyChanged()
+    {
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(LastError));
+    }
     public bool IsLinked { get; } = linkedCount > 1;
     public bool IsManual => Game.Store == GameStore.Manual;
     public bool NeedsExeConfirmation => Game.NeedsExeConfirmation;

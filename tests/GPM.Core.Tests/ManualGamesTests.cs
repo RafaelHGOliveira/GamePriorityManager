@@ -29,7 +29,7 @@ public class ManualGamesTests
 
     private static MainViewModel Make(MemoryConfigStore cfg, params Game[] detected) =>
         new(() => Task.FromResult<IReadOnlyList<Game>>(detected),
-            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg);
+            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg, TestGraphics.New());
 
     [Fact]
     public async Task add_manual_game_persists_and_shows_as_removable_row()

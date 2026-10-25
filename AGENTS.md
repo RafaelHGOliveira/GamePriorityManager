@@ -17,8 +17,10 @@ Windows WPF app that sets per-exe CPU/IO priority via the registry (IFEO `PerfOp
 
 ## Domain invariants
 - CPU priority dwords: Idle=1, BelowNormal=5, Normal=2, AboveNormal=6, High=3. **Realtime (4) is forbidden everywhere.** IO: 0-3 (Very Low/Low/Normal/High).
-- Registry writes touch ONLY `CpuPriorityClass`/`IoPriority` under `<exe>\PerfOptions` — never any other value or key.
-- Overrides are keyed by lowercase exe filename (IFEO is path-blind).
+- Registry writes touch ONLY two things — never any other value or key:
+  - `CpuPriorityClass`/`IoPriority` under `<exe>\PerfOptions` (IFEO, HKLM, elevated worker).
+  - The `GpuPreference`/`SwapEffectUpgradeEnable` tokens inside the `<full exe path>` value of `HKCU\Software\Microsoft\DirectX\UserGpuPreferences` (unelevated, written by the app itself, never by the worker). Every other token and value in there is preserved; "default" removes the token. See `docs/adr/0001-graphics-preference-keyed-by-path.md`.
+- Priority overrides are keyed by lowercase exe filename (IFEO is path-blind); Graphics Preferences are keyed by full exe path. Vocabulary: `GLOSSARY.md`.
 - UI: WPF-UI (`FluentWindow`, `SystemThemeWatcher` for OS dark/light). No tray, no background process.
 
 ## Conventions

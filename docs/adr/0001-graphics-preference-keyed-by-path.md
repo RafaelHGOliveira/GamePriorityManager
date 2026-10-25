@@ -1,0 +1,3 @@
+# Graphics Preference is keyed by exe path, Priority Override by exe filename
+
+Windows stores Priority Overrides in IFEO (path-blind, keyed by filename, HKLM, needs elevation) and Graphics Preferences in `HKCU\Software\Microsoft\DirectX\UserGpuPreferences` (keyed by full exe path, no elevation). GPM mirrors each store's real keying instead of forcing one model on both, so Linked Rows share a Priority Override but each has its own Graphics Preference. Graphics Preferences are written by the unelevated app itself, never by the elevated worker: under over-the-shoulder UAC elevation the worker runs as a different account, and its HKCU would be the wrong hive.

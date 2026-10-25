@@ -37,7 +37,7 @@ public class SettingsCacheTests
         var scans = 0;
         var vm = new MainViewModel(
             () => { scans++; return Task.FromResult<IReadOnlyList<Game>>([G("cs2")]); },
-            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg);
+            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg, TestGraphics.New());
 
         await vm.LoadAsync();
         Assert.Equal(1, scans);
@@ -59,7 +59,7 @@ public class SettingsCacheTests
         cfg.Cfg.Theme = "dark";
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg);
+            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg, TestGraphics.New());
 
         await vm.LoadAsync();
         Assert.True(vm.ShowIoColumn);
