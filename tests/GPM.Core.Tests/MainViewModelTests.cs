@@ -57,6 +57,19 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public async Task load_failure_surfaces_in_status_instead_of_throwing()
+    {
+        var svc = new InMemoryPriorityService();
+        var vm = new MainViewModel(
+            () => throw new InvalidOperationException("boom"),
+            new PassthroughResolver(), svc, new FakeLauncher(svc), new TempConfigStore());
+
+        await vm.LoadAsync();
+
+        Assert.Contains("boom", vm.StatusMessage);
+    }
+
+    [Fact]
     public async Task same_filename_across_stores_shares_one_state()
     {
         var svc = new InMemoryPriorityService();

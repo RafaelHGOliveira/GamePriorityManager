@@ -103,6 +103,17 @@ namespace GPM.App
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Could not load games: {0}.
+        /// </summary>
+        public static string LoadFailed
+        {
+            get
+            {
+                return ResourceManager.GetString("LoadFailed", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to GPM — Game Priority Manager.
         /// </summary>
         public static string AppTitle

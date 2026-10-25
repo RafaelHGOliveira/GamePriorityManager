@@ -74,7 +74,18 @@ public sealed partial class MainViewModel(
                       ((GameRowViewModel)o).Game.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase),
     };
 
+    // The startup load is fire-and-forget (CompositionRoot) and rescan rethrows into
+    // the dispatcher, so a failure here must surface in the status bar, not escape.
     public async Task LoadAsync(bool forceScan = false)
+    {
+        try { await LoadCoreAsync(forceScan); }
+        catch (Exception e)
+        {
+            StatusMessage = string.Format(Strings.LoadFailed, e.Message);
+        }
+    }
+
+    private async Task LoadCoreAsync(bool forceScan)
     {
         var version = ++_loadVersion;
         var cfg = config.Load();

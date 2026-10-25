@@ -122,3 +122,45 @@ public class PriorityServiceUnreadableKeyTests
         Assert.Equal("game.exe", Assert.Single(all).ExeName);
     }
 }
+
+/// Same scenario through the real RegistryKey stack: a subkey whose ACL denies read
+/// to the current user, as some HKLM IFEO keys do (crashed the app on 2026-10-16).
+public sealed class PriorityServiceDeniedKeyTests : IDisposable
+{
+    private readonly string _path = $@"Software\GPM-Test\{Guid.NewGuid():N}";
+    private readonly System.Security.AccessControl.RegistryAccessRule _deny = new(
+        System.Security.Principal.WindowsIdentity.GetCurrent().User!,
+        System.Security.AccessControl.RegistryRights.QueryValues,
+        System.Security.AccessControl.AccessControlType.Deny);
+
+    public PriorityServiceDeniedKeyTests()
+    {
+        using var root = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(_path);
+        using (var game = root.CreateSubKey(@"game.exe\PerfOptions"))
+            game.SetValue(PriorityValues.CpuValueName, 3, RegistryValueKind.DWord);
+        using var locked = root.CreateSubKey("locked.exe");
+        var acl = locked.GetAccessControl();
+        acl.AddAccessRule(_deny);
+        locked.SetAccessControl(acl);
+    }
+
+    public void Dispose()
+    {
+        using (var locked = Microsoft.Win32.Registry.CurrentUser.OpenSubKey($@"{_path}\locked.exe",
+            RegistryKeyPermissionCheck.ReadWriteSubTree, System.Security.AccessControl.RegistryRights.ChangePermissions))
+        {
+            var acl = new System.Security.AccessControl.RegistrySecurity();
+            acl.RemoveAccessRule(_deny); // empty explicit ACL; inheritance restores access
+            locked?.SetAccessControl(acl);
+        }
+        Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(_path, throwOnMissingSubKey: false);
+    }
+
+    [Fact]
+    public void read_all_skips_a_key_whose_acl_denies_read()
+    {
+        var svc = new PriorityService(new RealRegistryRoot(Microsoft.Win32.Registry.CurrentUser, _path));
+
+        Assert.Equal("game.exe", Assert.Single(svc.ReadAll()).ExeName);
+    }
+}

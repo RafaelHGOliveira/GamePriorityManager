@@ -29,4 +29,5 @@
   <data name="Settings_BetaSources" xml:space="preserve"><value>Beta sources (EA, Ubisoft)</value></data>
   <data name="Settings_Theme" xml:space="preserve"><value>Theme</value></data>
   <data name="ScanProgress" xml:space="preserve"><value>Scanning {0}...</value></data>
+  <data name="LoadFailed" xml:space="preserve"><value>Could not load games: {0}</value></data>
 </root>
