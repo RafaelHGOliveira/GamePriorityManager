@@ -12,6 +12,7 @@ public sealed class GpmConfig
     /// Provenance: lowercase exe names GPM has written overrides for
     public HashSet<string> ManagedExes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool ShowIoColumn { get; set; }
+    public bool ShowWindowedColumn { get; set; }
     public bool BetaSourcesEnabled { get; set; }
     public string Theme { get; set; } = "auto";
 }
