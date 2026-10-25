@@ -1,0 +1,26 @@
+name: ci
+
+# Build + test on every push and PR; release.yml only runs on v* tags.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build GamePriorityManager.sln -c Release
+
+      - name: Test
+        run: dotnet test tests/GPM.Core.Tests -c Release --no-build
