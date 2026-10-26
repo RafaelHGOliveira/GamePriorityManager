@@ -26,3 +26,17 @@ Windows WPF app that sets per-exe CPU/IO priority via the registry (IFEO `PerfOp
 ## Conventions
 - Commits: conventional prefixes (`feat:`/`test:`/`chore:`), never a `Co-Authored-By` trailer.
 - Release: `docs/release.md`.
+
+## Agent skills
+
+### Issue tracker
+
+Local markdown under `.scratch/<feature>/` (spec + one file per ticket). See `docs/agents/issue-tracker.md`. `docs/superpowers/` is the frozen MVP history, not a work queue.
+
+### Triage labels
+
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) as a `Status:` line. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` at the root. See `docs/agents/domain.md`.
