@@ -31,11 +31,11 @@ Windows WPF app that sets per-exe CPU/IO priority via the registry (IFEO `PerfOp
 
 ### Issue tracker
 
-This repo's GitHub Issues, through `gh` (spec in one issue, one ticket per issue, blocking via GitHub's native dependencies). The repo is public, so issues are too. See `docs/agents/issue-tracker.md`. `docs/superpowers/` is the frozen MVP history, not a work queue.
+Local markdown under `.scratch/<feature>/` (spec + one file per ticket). See `docs/agents/issue-tracker.md`. `docs/superpowers/` is the frozen MVP history, not a work queue.
 
 ### Triage labels
 
-Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) as GitHub labels, already created in the repo. See `docs/agents/triage-labels.md`.
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) as a `Status:` line. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
