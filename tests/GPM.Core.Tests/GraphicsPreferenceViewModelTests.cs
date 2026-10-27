@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Graphics;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
@@ -43,9 +44,11 @@ public class GraphicsPreferenceViewModelTests
         InMemoryStringValueStore store, IElevatedWorker? worker, params Game[] games)
     {
         var priorities = new InMemoryPriorityService();
+        var config = new MemoryConfig();
         return new(() => Task.FromResult<IReadOnlyList<Game>>(games),
-            new PassthroughResolver(), priorities, worker ?? new InProcessElevatedWorker(priorities), new MemoryConfig(),
-            new GraphicsPreferenceService(store));
+            new PassthroughResolver(), config,
+            new PendingChanges(priorities, new GraphicsPreferenceService(store),
+                worker ?? new InProcessElevatedWorker(priorities), config));
     }
 
     [Fact]
@@ -160,8 +163,9 @@ public class GraphicsPreferenceViewModelTests
         var cfg = new MemoryConfig();
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg,
-            TestGraphics.New());
+            new PassthroughResolver(), cfg,
+            new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(),
+                new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
         await vm.LoadAsync();
 
         vm.ShowWindowedColumn = true;

@@ -1,6 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace GPM.App.ViewModels;
+namespace GPM.Core.Changes;
 
 /// The single shared pending-state object for one exe filename.
 /// Every row with this filename holds the SAME instance (spec "IFEO semantics").

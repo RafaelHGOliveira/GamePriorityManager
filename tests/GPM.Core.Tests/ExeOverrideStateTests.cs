@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 
 namespace GPM.Core.Tests;

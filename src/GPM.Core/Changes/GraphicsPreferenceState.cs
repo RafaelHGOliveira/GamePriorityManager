@@ -1,7 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using GPM.Core.Graphics;
 
-namespace GPM.App.ViewModels;
+namespace GPM.Core.Changes;
 
 /// Pending-state object for ONE exe path. Unlike ExeOverrideState (shared by filename),
 /// Graphics Preferences are per path, so linked rows keep independent instances.

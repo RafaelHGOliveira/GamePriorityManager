@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -25,9 +26,13 @@ public class MainViewModelTests
     private static Game G(string name, string exe, GameStore store = GameStore.Steam) =>
         new() { Name = name, Store = store, ExePath = exe };
 
-    private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games) =>
-        new(() => Task.FromResult<IReadOnlyList<Game>>(games),
-            new PassthroughResolver(), svc, declineUac ? TestWorkers.DeclinedUac : new InProcessElevatedWorker(svc), new TempConfigStore(), TestGraphics.New());
+    private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games)
+    {
+        var cfg = new TempConfigStore();
+        return new(() => Task.FromResult<IReadOnlyList<Game>>(games), new PassthroughResolver(), cfg,
+            new PendingChanges(svc, TestGraphics.New(),
+                declineUac ? TestWorkers.DeclinedUac : new InProcessElevatedWorker(svc), cfg));
+    }
 
     [Fact]
     public async Task load_builds_rows_and_reads_registry_state()
@@ -47,9 +52,10 @@ public class MainViewModelTests
     public async Task load_failure_surfaces_in_status_instead_of_throwing()
     {
         var svc = new InMemoryPriorityService();
+        var cfg = new TempConfigStore();
         var vm = new MainViewModel(
             () => throw new InvalidOperationException("boom"),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), new TempConfigStore(), TestGraphics.New());
+            new PassthroughResolver(), cfg, new PendingChanges(svc, TestGraphics.New(), new InProcessElevatedWorker(svc), cfg));
 
         await vm.LoadAsync();
 
@@ -157,7 +163,7 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([G("CS2", @"C:\g\cs2.exe")]),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), cfgStore, TestGraphics.New());
+            new PassthroughResolver(), cfgStore, new PendingChanges(svc, TestGraphics.New(), new InProcessElevatedWorker(svc), cfgStore));
         await vm.LoadAsync();
 
         Assert.Equal(2, vm.OtherOverrides.Count);
@@ -173,7 +179,7 @@ public class MainViewModelTests
         var cfg = new TempConfigStore();
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([G("ELDEN RING", @"C:\g\eldenring.exe")]),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), cfg, TestGraphics.New());
+            new PassthroughResolver(), cfg, new PendingChanges(svc, TestGraphics.New(), new InProcessElevatedWorker(svc), cfg));
         await vm.LoadAsync();
 
         vm.Rows[0].State!.PendingCpu = 4;

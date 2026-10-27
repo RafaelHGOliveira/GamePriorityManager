@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -41,7 +42,7 @@ public class ResolutionCacheTests
 
     private static MainViewModel Make(MemoryConfigStore cfg, CountingResolver resolver) =>
         new(() => Task.FromResult<IReadOnlyList<Game>>([Unresolved]),
-            resolver, new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
+            resolver, cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
 
     [Fact]
     public async Task resolved_exe_is_cached_so_reload_skips_the_resolver()
@@ -85,7 +86,7 @@ public class ResolutionCacheTests
         var cfg = new MemoryConfigStore();
         var exe = TempExe("big.exe");
         var vm = new MainViewModel(() => Task.FromResult<IReadOnlyList<Game>>([Unresolved]),
-            new AmbiguousResolver(exe), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
+            new AmbiguousResolver(exe), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
 
         await vm.LoadAsync();
         await vm.LoadAsync(); // from cache

@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -32,7 +33,7 @@ public class SettingsCacheTests
         var scans = 0;
         var vm = new MainViewModel(
             () => { scans++; return Task.FromResult<IReadOnlyList<Game>>([G("cs2")]); },
-            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
+            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
 
         await vm.LoadAsync();
         Assert.Equal(1, scans);
@@ -54,7 +55,7 @@ public class SettingsCacheTests
         cfg.Cfg.Theme = "dark";
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
+            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
 
         await vm.LoadAsync();
         Assert.True(vm.ShowIoColumn);

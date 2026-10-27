@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Graphics;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
@@ -38,9 +39,10 @@ public static class MockFactory
             new() { Name = "Rocket League", Store = GameStore.Epic, ExePath = @"C:\mock\RocketLeague.exe" },
             new() { Name = "Some UE Game", Store = GameStore.Gog, ExePath = @"C:\mock\game.exe" }, // generic-name warning
         ];
-        var vm = new MainViewModel(() => Task.FromResult(games),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), new MemoryConfigStore(),
-            new GraphicsPreferenceService(new InMemoryStringValueStore()));
+        var config = new MemoryConfigStore();
+        var vm = new MainViewModel(() => Task.FromResult(games), new PassthroughResolver(), config,
+            new PendingChanges(svc, new GraphicsPreferenceService(new InMemoryStringValueStore()),
+                new InProcessElevatedWorker(svc), config));
         _ = vm.LoadAsync();
         return vm;
     }
