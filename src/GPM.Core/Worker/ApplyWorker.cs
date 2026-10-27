@@ -14,7 +14,7 @@ public static class ApplyWorker
 
     public static int Run(string opsPath, IPriorityService priorities)
     {
-        var resultPath = Path.ChangeExtension(opsPath, ".result.json");
+        var resultPath = OpsFile.ResultPath(opsPath);
         try
         {
             var ops = JsonSerializer.Deserialize<List<ApplyOp>>(File.ReadAllText(opsPath), JsonOpts);

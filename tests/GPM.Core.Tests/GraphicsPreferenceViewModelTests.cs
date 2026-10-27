@@ -1,4 +1,3 @@
-using GPM.App.Services;
 using GPM.App.ViewModels;
 using GPM.Core.Graphics;
 using GPM.Core.Models;
@@ -6,6 +5,7 @@ using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Registry;
 using GPM.Core.Resolve;
+using GPM.Core.Worker;
 
 namespace GPM.Core.Tests;
 
@@ -18,13 +18,13 @@ public class GraphicsPreferenceViewModelTests
         public ExeResolution Resolve(Game game) => new(game.ExePath, false, []);
     }
 
-    private sealed class CountingLauncher(bool declineUac = false) : IElevationLauncher
+    private sealed class CountingWorker(IElevatedWorker inner) : IElevatedWorker
     {
         public int Calls { get; private set; }
-        public Task<int?> RunApplyAsync(string opsPath)
+        public Task<ApplyReport?> ApplyAsync(IReadOnlyList<ApplyOp> ops)
         {
             Calls++;
-            return Task.FromResult<int?>(declineUac ? null : 0);
+            return inner.ApplyAsync(ops);
         }
     }
 
@@ -40,10 +40,13 @@ public class GraphicsPreferenceViewModelTests
         new() { Name = name, Store = store, ExePath = exe };
 
     private static MainViewModel Make(
-        InMemoryStringValueStore store, CountingLauncher launcher, params Game[] games) =>
-        new(() => Task.FromResult<IReadOnlyList<Game>>(games),
-            new PassthroughResolver(), new InMemoryPriorityService(), launcher, new MemoryConfig(),
+        InMemoryStringValueStore store, IElevatedWorker? worker, params Game[] games)
+    {
+        var priorities = new InMemoryPriorityService();
+        return new(() => Task.FromResult<IReadOnlyList<Game>>(games),
+            new PassthroughResolver(), priorities, worker ?? new InProcessElevatedWorker(priorities), new MemoryConfig(),
             new GraphicsPreferenceService(store));
+    }
 
     [Fact]
     public async Task load_reads_the_preference_of_each_exe_path()
@@ -51,7 +54,7 @@ public class GraphicsPreferenceViewModelTests
         var store = new InMemoryStringValueStore();
         store.Set(CsPath, "GpuPreference=2;");
 
-        var vm = Make(store, new CountingLauncher(), G("CS2", CsPath));
+        var vm = Make(store, null, G("CS2", CsPath));
         await vm.LoadAsync();
 
         Assert.Equal(2, vm.Rows[0].Graphics!.PendingGpu);
@@ -61,7 +64,7 @@ public class GraphicsPreferenceViewModelTests
     [Fact]
     public async Task linked_rows_share_cpu_state_but_not_graphics_state()
     {
-        var vm = Make(new InMemoryStringValueStore(), new CountingLauncher(),
+        var vm = Make(new InMemoryStringValueStore(), null,
             G("A", @"C:\steam\cs2.exe"), G("B", @"D:\other\cs2.exe", GameStore.Gog));
         await vm.LoadAsync();
 
@@ -77,15 +80,15 @@ public class GraphicsPreferenceViewModelTests
     public async Task gpu_only_apply_writes_the_registry_without_elevating()
     {
         var store = new InMemoryStringValueStore();
-        var launcher = new CountingLauncher();
-        var vm = Make(store, launcher, G("CS2", CsPath));
+        var worker = new CountingWorker(TestWorkers.DeclinedUac);
+        var vm = Make(store, worker, G("CS2", CsPath));
         await vm.LoadAsync();
 
         vm.Rows[0].Graphics!.PendingGpu = 2;
         await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.Equal("GpuPreference=2;", store.Get(CsPath));
-        Assert.Equal(0, launcher.Calls);
+        Assert.Equal(0, worker.Calls);
         Assert.Equal(0, vm.PendingCount);
         Assert.False(vm.Rows[0].IsDirty);
     }
@@ -94,7 +97,7 @@ public class GraphicsPreferenceViewModelTests
     public async Task declined_uac_keeps_cpu_pending_but_gpu_stays_applied()
     {
         var store = new InMemoryStringValueStore();
-        var vm = Make(store, new CountingLauncher(declineUac: true), G("CS2", CsPath));
+        var vm = Make(store, TestWorkers.DeclinedUac, G("CS2", CsPath));
         await vm.LoadAsync();
 
         vm.Rows[0].Graphics!.PendingGpu = 2;
@@ -111,7 +114,7 @@ public class GraphicsPreferenceViewModelTests
     {
         var store = new InMemoryStringValueStore();
         store.Set(CsPath, "AutoHDREnable=2097;GpuPreference=1;");
-        var vm = Make(store, new CountingLauncher(), G("CS2", CsPath));
+        var vm = Make(store, null, G("CS2", CsPath));
         await vm.LoadAsync();
 
         vm.Rows[0].Graphics!.PendingGpu = 2;
@@ -125,7 +128,7 @@ public class GraphicsPreferenceViewModelTests
     public async Task discard_reverts_pending_graphics_changes()
     {
         var store = new InMemoryStringValueStore();
-        var vm = Make(store, new CountingLauncher(), G("CS2", CsPath));
+        var vm = Make(store, null, G("CS2", CsPath));
         await vm.LoadAsync();
 
         vm.Rows[0].Graphics!.PendingGpu = 2;
@@ -139,7 +142,7 @@ public class GraphicsPreferenceViewModelTests
     [Fact]
     public async Task row_dirty_flag_follows_either_half_of_the_row()
     {
-        var vm = Make(new InMemoryStringValueStore(), new CountingLauncher(), G("CS2", CsPath));
+        var vm = Make(new InMemoryStringValueStore(), null, G("CS2", CsPath));
         await vm.LoadAsync();
         var row = vm.Rows[0];
         var raised = new List<string?>();
@@ -157,7 +160,7 @@ public class GraphicsPreferenceViewModelTests
         var cfg = new MemoryConfig();
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), new InMemoryPriorityService(), new CountingLauncher(), cfg,
+            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg,
             TestGraphics.New());
         await vm.LoadAsync();
 

@@ -1,5 +1,4 @@
 using System.IO;
-using GPM.App.Services;
 using GPM.App.ViewModels;
 using GPM.Core.Detection;
 using GPM.Core.Detection.Steam;
@@ -8,6 +7,7 @@ using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Registry;
 using GPM.Core.Resolve;
+using GPM.Core.Worker;
 using Microsoft.Win32;
 
 namespace GPM.App;
@@ -39,7 +39,7 @@ public static class CompositionRoot
             scanGames: () => scanner.ScanAsync(config.Load().BetaSourcesEnabled),
             resolver: new ExeResolver(KnownGames.LoadEmbedded()),
             priorities: CreatePriorityService(),
-            elevation: new ElevationLauncher(),
+            worker: new RunasElevatedWorker(),
             config: config,
             graphics: new GraphicsPreferenceService(new RealStringValueStore(
                 RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64),

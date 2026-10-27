@@ -1,9 +1,9 @@
-using GPM.App.Services;
 using GPM.App.ViewModels;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Resolve;
+using GPM.Core.Worker;
 
 namespace GPM.Core.Tests;
 
@@ -12,11 +12,6 @@ public class SettingsCacheTests
     private sealed class PassthroughResolver : IExeResolver
     {
         public ExeResolution Resolve(Game game) => new(game.ExePath, false, []);
-    }
-
-    private sealed class NoopLauncher : IElevationLauncher
-    {
-        public Task<int?> RunApplyAsync(string opsPath) => Task.FromResult<int?>(0);
     }
 
     private sealed class MemoryConfigStore : IConfigStore
@@ -37,7 +32,7 @@ public class SettingsCacheTests
         var scans = 0;
         var vm = new MainViewModel(
             () => { scans++; return Task.FromResult<IReadOnlyList<Game>>([G("cs2")]); },
-            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg, TestGraphics.New());
+            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
 
         await vm.LoadAsync();
         Assert.Equal(1, scans);
@@ -59,7 +54,7 @@ public class SettingsCacheTests
         cfg.Cfg.Theme = "dark";
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), new InMemoryPriorityService(), new NoopLauncher(), cfg, TestGraphics.New());
+            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
 
         await vm.LoadAsync();
         Assert.True(vm.ShowIoColumn);

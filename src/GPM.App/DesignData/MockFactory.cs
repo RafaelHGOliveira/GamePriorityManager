@@ -1,5 +1,3 @@
-using System.IO;
-using GPM.App.Services;
 using GPM.App.ViewModels;
 using GPM.Core.Graphics;
 using GPM.Core.Models;
@@ -7,6 +5,7 @@ using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Registry;
 using GPM.Core.Resolve;
+using GPM.Core.Worker;
 
 namespace GPM.App.DesignData;
 
@@ -17,18 +16,6 @@ public static class MockFactory
     private sealed class PassthroughResolver : IExeResolver
     {
         public ExeResolution Resolve(Game game) => new(game.ExePath, game.ExePath is null, []);
-    }
-
-    private sealed class MockLauncher(InMemoryPriorityService svc) : IElevationLauncher
-    {
-        public async Task<int?> RunApplyAsync(string opsPath)
-        {
-            var ops = System.Text.Json.JsonSerializer.Deserialize<List<GPM.Core.Worker.ApplyOp>>(
-                await File.ReadAllTextAsync(opsPath),
-                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
-            foreach (var op in ops) svc.Write(op.Exe, op.Cpu, op.Io);
-            return 0;
-        }
     }
 
     private sealed class MemoryConfigStore : IConfigStore
@@ -52,7 +39,7 @@ public static class MockFactory
             new() { Name = "Some UE Game", Store = GameStore.Gog, ExePath = @"C:\mock\game.exe" }, // generic-name warning
         ];
         var vm = new MainViewModel(() => Task.FromResult(games),
-            new PassthroughResolver(), svc, new MockLauncher(svc), new MemoryConfigStore(),
+            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), new MemoryConfigStore(),
             new GraphicsPreferenceService(new InMemoryStringValueStore()));
         _ = vm.LoadAsync();
         return vm;

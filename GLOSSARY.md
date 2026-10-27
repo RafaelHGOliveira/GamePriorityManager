@@ -47,6 +47,10 @@ _Avoid_: dirty row, unsaved change
 Writing every Pending Change at once, behind a single elevation prompt.
 _Avoid_: save, commit
 
+**Elevated Worker**:
+The copy of GPM that Apply relaunches with admin rights to write Priority Overrides; it re-checks every one itself, rejects the whole batch if any is invalid, and writes nothing else.
+_Avoid_: launcher, helper process
+
 **Other Overrides**:
 Priority Overrides present in Windows that match no detected game, whoever created them.
 _Avoid_: unknown overrides, extra overrides

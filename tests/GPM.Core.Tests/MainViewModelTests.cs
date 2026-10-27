@@ -1,9 +1,9 @@
-using GPM.App.Services;
 using GPM.App.ViewModels;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Resolve;
+using GPM.Core.Worker;
 
 namespace GPM.Core.Tests;
 
@@ -12,19 +12,6 @@ public class MainViewModelTests
     private sealed class PassthroughResolver : IExeResolver
     {
         public ExeResolution Resolve(Game game) => new(game.ExePath, false, []);
-    }
-
-    private sealed class FakeLauncher(InMemoryPriorityService svc, bool declineUac = false) : IElevationLauncher
-    {
-        public Task<int?> RunApplyAsync(string opsPath)
-        {
-            if (declineUac) return Task.FromResult<int?>(null);
-            // simulate the elevated worker: apply ops straight to the fake service
-            var ops = System.Text.Json.JsonSerializer.Deserialize<List<GPM.Core.Worker.ApplyOp>>(
-                File.ReadAllText(opsPath), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
-            foreach (var op in ops) svc.Write(op.Exe, op.Cpu, op.Io);
-            return Task.FromResult<int?>(0);
-        }
     }
 
     private sealed class TempConfigStore : IConfigStore
@@ -40,7 +27,7 @@ public class MainViewModelTests
 
     private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games) =>
         new(() => Task.FromResult<IReadOnlyList<Game>>(games),
-            new PassthroughResolver(), svc, new FakeLauncher(svc, declineUac), new TempConfigStore(), TestGraphics.New());
+            new PassthroughResolver(), svc, declineUac ? TestWorkers.DeclinedUac : new InProcessElevatedWorker(svc), new TempConfigStore(), TestGraphics.New());
 
     [Fact]
     public async Task load_builds_rows_and_reads_registry_state()
@@ -62,7 +49,7 @@ public class MainViewModelTests
         var svc = new InMemoryPriorityService();
         var vm = new MainViewModel(
             () => throw new InvalidOperationException("boom"),
-            new PassthroughResolver(), svc, new FakeLauncher(svc), new TempConfigStore(), TestGraphics.New());
+            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), new TempConfigStore(), TestGraphics.New());
 
         await vm.LoadAsync();
 
@@ -170,11 +157,51 @@ public class MainViewModelTests
 
         var vm = new MainViewModel(
             () => Task.FromResult<IReadOnlyList<Game>>([G("CS2", @"C:\g\cs2.exe")]),
-            new PassthroughResolver(), svc, new FakeLauncher(svc), cfgStore, TestGraphics.New());
+            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), cfgStore, TestGraphics.New());
         await vm.LoadAsync();
 
         Assert.Equal(2, vm.OtherOverrides.Count);
         Assert.False(vm.OtherOverrides.Single(o => o.State.ExeName == "voicemeeterpro.exe").IsOrphaned);
         Assert.True(vm.OtherOverrides.Single(o => o.State.ExeName == "uninstalled.exe").IsOrphaned);
+    }
+
+    // The UI never offers Realtime (4), so forcing it is the simplest batch the
+    // Elevated Worker's OpsValidator rejects (ADR-0003).
+    private static async Task<(MainViewModel vm, InMemoryPriorityService svc, TempConfigStore cfg)> ApplyRejectedBatch()
+    {
+        var svc = new InMemoryPriorityService();
+        var cfg = new TempConfigStore();
+        var vm = new MainViewModel(
+            () => Task.FromResult<IReadOnlyList<Game>>([G("ELDEN RING", @"C:\g\eldenring.exe")]),
+            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), cfg, TestGraphics.New());
+        await vm.LoadAsync();
+
+        vm.Rows[0].State!.PendingCpu = 4;
+        await vm.ApplyCommand.ExecuteAsync(null);
+        return (vm, svc, cfg);
+    }
+
+    // Pins today's behaviour (known bug, architecture review 2026-10-26): a rejected
+    // batch writes nothing and stays pending, but the user is told nothing and the exe
+    // is still recorded as managed. Replace with the skipped test below once fixed.
+    [Fact]
+    public async Task apply_rejected_by_the_worker_is_silent_and_still_marks_exe_managed()
+    {
+        var (vm, svc, cfg) = await ApplyRejectedBatch();
+
+        Assert.Empty(svc.Data);                        // the worker wrote nothing
+        Assert.Equal(1, vm.PendingCount);              // the change is still pending
+        Assert.Null(vm.StatusMessage);                 // ...but nothing tells the user why
+        Assert.Null(vm.Rows[0].State!.LastError);
+        Assert.Contains("eldenring.exe", cfg.Load().ManagedExes);
+    }
+
+    [Fact(Skip = "Known bug: a batch the Elevated Worker rejects is silent and still marks exes as managed")]
+    public async Task apply_rejected_by_the_worker_tells_the_user_and_marks_nothing_managed()
+    {
+        var (vm, _, cfg) = await ApplyRejectedBatch();
+
+        Assert.NotNull(vm.StatusMessage);
+        Assert.DoesNotContain("eldenring.exe", cfg.Load().ManagedExes);
     }
 }

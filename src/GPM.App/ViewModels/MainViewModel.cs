@@ -1,11 +1,9 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
-using System.Text.Json;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GPM.App.Services;
 using GPM.Core.Detection.Steam;
 using GPM.Core.Graphics;
 using GPM.Core.Models;
@@ -20,12 +18,10 @@ public sealed partial class MainViewModel(
     Func<Task<IReadOnlyList<Game>>> scanGames,
     IExeResolver resolver,
     IPriorityService priorities,
-    IElevationLauncher elevation,
+    IElevatedWorker worker,
     IConfigStore config,
     GraphicsPreferenceService graphics) : ObservableObject
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     private readonly Dictionary<string, ExeOverrideState> _states = new(StringComparer.OrdinalIgnoreCase);
     // keyed by full exe path: Graphics Preferences are per path, unlike the filename-keyed IFEO states
     private readonly Dictionary<string, GraphicsPreferenceState> _graphics = new(StringComparer.OrdinalIgnoreCase);
@@ -341,22 +337,16 @@ public sealed partial class MainViewModel(
         }
 
         var ops = dirty.Select(s => new ApplyOp(s.ExeName, s.PendingCpu, s.PendingIo)).ToList();
-        var opsPath = Path.Combine(Path.GetTempPath(), $"gpm-ops-{Guid.NewGuid():N}.json");
-        await File.WriteAllTextAsync(opsPath, JsonSerializer.Serialize(ops, Json));
-
-        var exit = await elevation.RunApplyAsync(opsPath);
-        if (exit is null)
+        var report = await worker.ApplyAsync(ops);
+        if (report is null)
         {
             // changes stay pending (spec "Error handling"); GPU changes were already applied
             StatusMessage = dirtyGraphics.Count > 0 ? Strings.ApplyCancelledGpuApplied : Strings.ApplyCancelled;
             return;
         }
 
-        // attach per-item errors from result.json when present
-        var resultPath = Path.ChangeExtension(opsPath, ".result.json");
-        if (File.Exists(resultPath) &&
-            JsonSerializer.Deserialize<ApplyReport>(await File.ReadAllTextAsync(resultPath), Json)
-                is { BatchRejected: false } report)
+        // attach per-item errors; a rejected batch carries none
+        if (!report.BatchRejected)
         {
             foreach (var r in report.Results.Where(r => !r.Success))
                 if (_states.TryGetValue(r.Exe, out var s)) s.LastError = r.Error;
