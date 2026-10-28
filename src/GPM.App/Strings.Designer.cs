@@ -389,6 +389,28 @@ namespace GPM.App
         }
 
         /// <summary>
+        ///   Looks up a localized string similar to Apply rejected, nothing was written: {0}.
+        /// </summary>
+        public static string ApplyRejected
+        {
+            get
+            {
+                return ResourceManager.GetString("ApplyRejected", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Apply rejected — GPU changes were applied, CPU/I-O changes were not written: {0}.
+        /// </summary>
+        public static string ApplyRejectedGpuApplied
+        {
+            get
+            {
+                return ResourceManager.GetString("ApplyRejectedGpuApplied", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   Looks up a localized string similar to Show windowed optimizations column.
         /// </summary>
         public static string Settings_ShowWindowed

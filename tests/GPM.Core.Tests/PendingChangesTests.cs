@@ -184,6 +184,20 @@ public class PendingChangesTests
     }
 
     [Fact]
+    public async Task only_exes_written_successfully_are_recorded_as_managed()
+    {
+        var worker = new InProcessElevatedWorker(new FailingFor("bad.exe", _priorities));
+        var changes = Loaded(worker, G(@"C:\g\bad.exe"), G(@"C:\g\good.exe"));
+        changes.PriorityOverride("bad.exe").PendingCpu = 3;
+        changes.PriorityOverride("good.exe").PendingCpu = 3;
+
+        await changes.ApplyAsync();
+
+        Assert.Contains("good.exe", _config.Cfg.ManagedExes);
+        Assert.DoesNotContain("bad.exe", _config.Cfg.ManagedExes);
+    }
+
+    [Fact]
     public async Task uac_declined_keeps_priority_overrides_pending()
     {
         var changes = Loaded(TestWorkers.DeclinedUac, G(@"C:\g\eldenring.exe"));
@@ -275,28 +289,16 @@ public class PendingChangesTests
         return (changes, await changes.ApplyAsync());
     }
 
-    // Pins today's behaviour (known bug, architecture review 2026-10-26): a rejected
-    // batch writes nothing and stays pending, but the exe is still recorded as managed.
-    // Replace with the skipped test below once fixed (.scratch/apply-feedback/issues/01).
     [Fact]
-    public async Task apply_rejected_by_the_worker_still_marks_exe_managed()
+    public async Task apply_rejected_by_the_worker_writes_nothing_and_marks_nothing_managed()
     {
         var (changes, outcome) = await ApplyRejectedBatch();
 
         Assert.Equal(ApplyStatus.Rejected, outcome.Status);
+        Assert.NotNull(outcome.RejectionReason);
         Assert.Empty(_priorities.Data);                         // the worker wrote nothing
         Assert.Equal(1, changes.Count);                         // the change is still pending
-        Assert.Null(changes.PriorityOverride("eldenring.exe").LastError);
-        Assert.Contains("eldenring.exe", _config.Cfg.ManagedExes);
-    }
-
-    [Fact(Skip = "Known bug: a batch the Elevated Worker rejects still marks exes as managed")]
-    public async Task apply_rejected_by_the_worker_marks_nothing_managed()
-    {
-        var (_, outcome) = await ApplyRejectedBatch();
-
-        Assert.Equal(ApplyStatus.Rejected, outcome.Status);
-        Assert.NotNull(outcome.RejectionReason);
+        Assert.Null(changes.PriorityOverride("eldenring.exe").LastError); // batch-wide, not per row
         Assert.DoesNotContain("eldenring.exe", _config.Cfg.ManagedExes);
     }
 }

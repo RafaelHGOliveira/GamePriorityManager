@@ -196,22 +196,25 @@ public class MainViewModelTests
         return vm;
     }
 
-    // Pins today's behaviour (known bug, architecture review 2026-10-26): the user is
-    // told nothing about a rejected batch. Replace with the skipped test below once
-    // fixed (.scratch/apply-feedback/issues/01).
     [Fact]
-    public async Task apply_rejected_by_the_worker_is_silent()
-    {
-        var vm = await ApplyRejectedBatch();
-
-        Assert.Null(vm.StatusMessage);
-    }
-
-    [Fact(Skip = "Known bug: a batch the Elevated Worker rejects is silent")]
-    public async Task apply_rejected_by_the_worker_tells_the_user()
+    public async Task apply_rejected_by_the_worker_tells_the_user_why()
     {
         var vm = await ApplyRejectedBatch();
 
         Assert.NotNull(vm.StatusMessage);
+        Assert.Contains("invalid cpu value 4", vm.StatusMessage); // OpsValidator's reason
+    }
+
+    [Fact]
+    public async Task apply_rejected_after_graphics_preferences_says_those_were_applied()
+    {
+        var vm = Make(new InMemoryPriorityService(), false, G("CS2", @"C:\s\cs2.exe"));
+        await vm.LoadAsync();
+
+        vm.Rows[0].Graphics!.PendingGpu = 2;
+        vm.Rows[0].State!.PendingCpu = 4;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.StartsWith(GPM.App.Strings.ApplyRejectedGpuApplied.Split("{0}")[0], vm.StatusMessage);
     }
 }

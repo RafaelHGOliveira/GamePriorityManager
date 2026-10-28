@@ -110,13 +110,11 @@ public sealed partial class PendingChanges(
         var ops = dirty.Select(s => new ApplyOp(s.ExeName, s.PendingCpu, s.PendingIo)).ToList();
         var report = await worker.ApplyAsync(ops);
         if (report is null) return new(ApplyStatus.UacDeclined, wroteGraphics); // changes stay pending
+        // nothing was written; the reason is batch-wide, so no row gets a LastError
+        if (report.BatchRejected) return new(ApplyStatus.Rejected, wroteGraphics, report.BatchError);
 
-        // attach per-item errors; a rejected batch carries none
-        if (!report.BatchRejected)
-        {
-            foreach (var r in report.Results.Where(r => !r.Success))
-                if (_overrides.TryGetValue(r.Exe, out var s)) s.LastError = r.Error;
-        }
+        foreach (var r in report.Results.Where(r => !r.Success))
+            if (_overrides.TryGetValue(r.Exe, out var s)) s.LastError = r.Error;
 
         foreach (var s in dirty)
         {
@@ -125,14 +123,12 @@ public sealed partial class PendingChanges(
         }
         Recount();
 
-        // provenance: remember every exe GPM has managed (for orphan detection)
+        // provenance: remember every exe GPM has written (for orphan detection)
         var cfg = config.Load();
-        foreach (var op in ops) cfg.ManagedExes.Add(op.Exe);
+        foreach (var r in report.Results.Where(r => r.Success)) cfg.ManagedExes.Add(r.Exe);
         config.Save(cfg);
 
-        return report.BatchRejected
-            ? new(ApplyStatus.Rejected, wroteGraphics, report.BatchError)
-            : new(ApplyStatus.Applied, wroteGraphics);
+        return new(ApplyStatus.Applied, wroteGraphics);
     }
 
     private void ApplyGraphics(List<GraphicsPreferenceState> dirty)

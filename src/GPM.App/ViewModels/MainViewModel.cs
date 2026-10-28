@@ -269,6 +269,9 @@ public sealed partial class MainViewModel : ObservableObject
             ApplyStatus.UacDeclined => outcome.GraphicsPreferencesWritten
                 ? Strings.ApplyCancelledGpuApplied
                 : Strings.ApplyCancelled,
+            ApplyStatus.Rejected => string.Format(outcome.GraphicsPreferencesWritten
+                ? Strings.ApplyRejectedGpuApplied
+                : Strings.ApplyRejected, outcome.RejectionReason),
             _ => null,
         };
     }
