@@ -1,5 +1,6 @@
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 
 namespace GPM.App.ViewModels;

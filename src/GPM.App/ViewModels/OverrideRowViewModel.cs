@@ -1,3 +1,5 @@
+using GPM.Core.Changes;
+
 namespace GPM.App.ViewModels;
 
 /// A row in the "Other overrides" section (spec "UI").

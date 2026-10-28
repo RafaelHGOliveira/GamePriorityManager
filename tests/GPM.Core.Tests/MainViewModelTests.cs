@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -7,6 +8,8 @@ using GPM.Core.Worker;
 
 namespace GPM.Core.Tests;
 
+/// What the view model owns: rows, status text, search. Pending Change behaviour
+/// itself is tested through PendingChanges (PendingChangesTests).
 public class MainViewModelTests
 {
     private sealed class PassthroughResolver : IExeResolver
@@ -25,9 +28,13 @@ public class MainViewModelTests
     private static Game G(string name, string exe, GameStore store = GameStore.Steam) =>
         new() { Name = name, Store = store, ExePath = exe };
 
-    private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games) =>
-        new(() => Task.FromResult<IReadOnlyList<Game>>(games),
-            new PassthroughResolver(), svc, declineUac ? TestWorkers.DeclinedUac : new InProcessElevatedWorker(svc), new TempConfigStore(), TestGraphics.New());
+    private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games)
+    {
+        var cfg = new TempConfigStore();
+        return new(() => Task.FromResult<IReadOnlyList<Game>>(games), new PassthroughResolver(), cfg,
+            new PendingChanges(svc, TestGraphics.New(),
+                declineUac ? TestWorkers.DeclinedUac : new InProcessElevatedWorker(svc), cfg));
+    }
 
     [Fact]
     public async Task load_builds_rows_and_reads_registry_state()
@@ -47,9 +54,10 @@ public class MainViewModelTests
     public async Task load_failure_surfaces_in_status_instead_of_throwing()
     {
         var svc = new InMemoryPriorityService();
+        var cfg = new TempConfigStore();
         var vm = new MainViewModel(
             () => throw new InvalidOperationException("boom"),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), new TempConfigStore(), TestGraphics.New());
+            new PassthroughResolver(), cfg, new PendingChanges(svc, TestGraphics.New(), new InProcessElevatedWorker(svc), cfg));
 
         await vm.LoadAsync();
 
@@ -57,64 +65,96 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task same_filename_across_stores_shares_one_state()
+    public async Task same_filename_across_stores_makes_linked_rows()
     {
-        var svc = new InMemoryPriorityService();
-        var vm = Make(svc, false,
+        var vm = Make(new InMemoryPriorityService(), false,
             G("Game A", @"C:\steam\cs2.exe", GameStore.Steam),
             G("Game A", @"D:\other\CS2.exe", GameStore.Gog));
 
         await vm.LoadAsync();
 
-        Assert.Same(vm.Rows[0].State, vm.Rows[1].State); // linked by construction
+        Assert.Same(vm.Rows[0].State, vm.Rows[1].State);
         Assert.True(vm.Rows[0].IsLinked);
-
-        vm.Rows[0].State!.PendingCpu = 3;
-        Assert.Equal(1, vm.PendingCount); // one pending change, not two
+        Assert.True(vm.Rows[1].IsLinked);
     }
 
     [Fact]
-    public async Task apply_writes_ops_and_refresh_clears_dirty()
+    public async Task pending_count_follows_every_edit()
     {
-        var svc = new InMemoryPriorityService();
-        var vm = Make(svc, false, G("ELDEN RING", @"C:\g\eldenring.exe"));
+        var vm = Make(new InMemoryPriorityService(), false, G("ELDEN RING", @"C:\g\eldenring.exe"));
         await vm.LoadAsync();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 
         vm.Rows[0].State!.PendingCpu = 3;
-        vm.Rows[0].State!.PendingIo = 2;
-        await vm.ApplyCommand.ExecuteAsync(null);
 
-        Assert.Equal((3, 2), svc.Data["eldenring.exe"]);
-        Assert.Equal(0, vm.PendingCount);
-        Assert.False(vm.Rows[0].State!.IsDirty);
+        Assert.Equal(1, vm.PendingCount);
+        Assert.Contains(nameof(MainViewModel.PendingCount), raised);
     }
 
     [Fact]
-    public async Task uac_declined_keeps_changes_pending()
+    public async Task row_dirty_flag_follows_either_half_of_the_row()
+    {
+        var vm = Make(new InMemoryPriorityService(), false, G("CS2", @"C:\s\cs2.exe"));
+        await vm.LoadAsync();
+        var row = vm.Rows[0];
+        var raised = new List<string?>();
+        row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        row.Graphics!.PendingGpu = 1;
+
+        Assert.True(row.IsDirty);
+        Assert.Contains(nameof(GameRowViewModel.IsDirty), raised);
+    }
+
+    [Fact]
+    public async Task other_overrides_become_rows()
     {
         var svc = new InMemoryPriorityService();
-        var vm = Make(svc, declineUac: true, G("ELDEN RING", @"C:\g\eldenring.exe"));
+        svc.Write("voicemeeterpro.exe", 6, null);
+        var vm = Make(svc, false, G("CS2", @"C:\g\cs2.exe"));
+
+        await vm.LoadAsync();
+
+        Assert.Equal("voicemeeterpro.exe", Assert.Single(vm.OtherOverrides).State.ExeName);
+    }
+
+    [Fact]
+    public async Task uac_declined_says_the_apply_was_cancelled()
+    {
+        var vm = Make(new InMemoryPriorityService(), declineUac: true, G("ELDEN RING", @"C:\g\eldenring.exe"));
         await vm.LoadAsync();
 
         vm.Rows[0].State!.PendingCpu = 3;
         await vm.ApplyCommand.ExecuteAsync(null);
 
-        Assert.Empty(svc.Data);                         // nothing written
-        Assert.Equal(1, vm.PendingCount);               // still pending
         Assert.Equal(GPM.App.Strings.ApplyCancelled, vm.StatusMessage);
     }
 
     [Fact]
-    public async Task discard_reverts_all_pending()
+    public async Task uac_declined_after_graphics_preferences_says_those_were_applied()
     {
-        var svc = new InMemoryPriorityService();
-        var vm = Make(svc, false, G("A", @"C:\a\a.exe"), G("B", @"C:\b\b.exe"));
+        var vm = Make(new InMemoryPriorityService(), declineUac: true, G("CS2", @"C:\s\cs2.exe"));
         await vm.LoadAsync();
 
+        vm.Rows[0].Graphics!.PendingGpu = 2;
         vm.Rows[0].State!.PendingCpu = 3;
-        vm.Rows[1].State!.PendingIo = 1;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal(GPM.App.Strings.ApplyCancelledGpuApplied, vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task discard_clears_the_status()
+    {
+        var vm = Make(new InMemoryPriorityService(), declineUac: true, G("ELDEN RING", @"C:\g\eldenring.exe"));
+        await vm.LoadAsync();
+        vm.Rows[0].State!.PendingCpu = 3;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
         vm.DiscardCommand.Execute(null);
 
+        Assert.Null(vm.StatusMessage);
         Assert.Equal(0, vm.PendingCount);
     }
 
@@ -144,64 +184,37 @@ public class MainViewModelTests
         Assert.Equal(2, vm.VisibleRows.Cast<GameRowViewModel>().Count());
     }
 
-    [Fact]
-    public async Task overrides_not_matching_games_land_in_other_overrides_with_orphan_flag()
-    {
-        var svc = new InMemoryPriorityService();
-        svc.Write("voicemeeterpro.exe", 6, null);   // intentional non-game override
-        svc.Write("uninstalled.exe", 3, null);      // was managed by GPM, game gone
-        var cfgStore = new TempConfigStore();
-        var cfg = cfgStore.Load();
-        cfg.ManagedExes.Add("uninstalled.exe");
-        cfgStore.Save(cfg);
-
-        var vm = new MainViewModel(
-            () => Task.FromResult<IReadOnlyList<Game>>([G("CS2", @"C:\g\cs2.exe")]),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), cfgStore, TestGraphics.New());
-        await vm.LoadAsync();
-
-        Assert.Equal(2, vm.OtherOverrides.Count);
-        Assert.False(vm.OtherOverrides.Single(o => o.State.ExeName == "voicemeeterpro.exe").IsOrphaned);
-        Assert.True(vm.OtherOverrides.Single(o => o.State.ExeName == "uninstalled.exe").IsOrphaned);
-    }
-
     // The UI never offers Realtime (4), so forcing it is the simplest batch the
     // Elevated Worker's OpsValidator rejects (ADR-0003).
-    private static async Task<(MainViewModel vm, InMemoryPriorityService svc, TempConfigStore cfg)> ApplyRejectedBatch()
+    private static async Task<MainViewModel> ApplyRejectedBatch()
     {
-        var svc = new InMemoryPriorityService();
-        var cfg = new TempConfigStore();
-        var vm = new MainViewModel(
-            () => Task.FromResult<IReadOnlyList<Game>>([G("ELDEN RING", @"C:\g\eldenring.exe")]),
-            new PassthroughResolver(), svc, new InProcessElevatedWorker(svc), cfg, TestGraphics.New());
+        var vm = Make(new InMemoryPriorityService(), false, G("ELDEN RING", @"C:\g\eldenring.exe"));
         await vm.LoadAsync();
 
         vm.Rows[0].State!.PendingCpu = 4;
         await vm.ApplyCommand.ExecuteAsync(null);
-        return (vm, svc, cfg);
+        return vm;
     }
 
-    // Pins today's behaviour (known bug, architecture review 2026-10-26): a rejected
-    // batch writes nothing and stays pending, but the user is told nothing and the exe
-    // is still recorded as managed. Replace with the skipped test below once fixed.
     [Fact]
-    public async Task apply_rejected_by_the_worker_is_silent_and_still_marks_exe_managed()
+    public async Task apply_rejected_by_the_worker_tells_the_user_why()
     {
-        var (vm, svc, cfg) = await ApplyRejectedBatch();
-
-        Assert.Empty(svc.Data);                        // the worker wrote nothing
-        Assert.Equal(1, vm.PendingCount);              // the change is still pending
-        Assert.Null(vm.StatusMessage);                 // ...but nothing tells the user why
-        Assert.Null(vm.Rows[0].State!.LastError);
-        Assert.Contains("eldenring.exe", cfg.Load().ManagedExes);
-    }
-
-    [Fact(Skip = "Known bug: a batch the Elevated Worker rejects is silent and still marks exes as managed")]
-    public async Task apply_rejected_by_the_worker_tells_the_user_and_marks_nothing_managed()
-    {
-        var (vm, _, cfg) = await ApplyRejectedBatch();
+        var vm = await ApplyRejectedBatch();
 
         Assert.NotNull(vm.StatusMessage);
-        Assert.DoesNotContain("eldenring.exe", cfg.Load().ManagedExes);
+        Assert.Contains("invalid cpu value 4", vm.StatusMessage); // OpsValidator's reason
+    }
+
+    [Fact]
+    public async Task apply_rejected_after_graphics_preferences_says_those_were_applied()
+    {
+        var vm = Make(new InMemoryPriorityService(), false, G("CS2", @"C:\s\cs2.exe"));
+        await vm.LoadAsync();
+
+        vm.Rows[0].Graphics!.PendingGpu = 2;
+        vm.Rows[0].State!.PendingCpu = 4;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.StartsWith(GPM.App.Strings.ApplyRejectedGpuApplied.Split("{0}")[0], vm.StatusMessage);
     }
 }

@@ -1,4 +1,5 @@
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -24,7 +25,7 @@ public class ManualGamesTests
 
     private static MainViewModel Make(MemoryConfigStore cfg, params Game[] detected) =>
         new(() => Task.FromResult<IReadOnlyList<Game>>(detected),
-            new PassthroughResolver(), new InMemoryPriorityService(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg, TestGraphics.New());
+            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
 
     [Fact]
     public async Task add_manual_game_persists_and_shows_as_removable_row()

@@ -1,5 +1,6 @@
 using System.IO;
 using GPM.App.ViewModels;
+using GPM.Core.Changes;
 using GPM.Core.Detection;
 using GPM.Core.Detection.Steam;
 using GPM.Core.Graphics;
@@ -38,12 +39,14 @@ public static class CompositionRoot
         var vm = new MainViewModel(
             scanGames: () => scanner.ScanAsync(config.Load().BetaSourcesEnabled),
             resolver: new ExeResolver(KnownGames.LoadEmbedded()),
-            priorities: CreatePriorityService(),
-            worker: new RunasElevatedWorker(),
             config: config,
-            graphics: new GraphicsPreferenceService(new RealStringValueStore(
-                RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64),
-                @"Software\Microsoft\DirectX\UserGpuPreferences")));
+            changes: new PendingChanges(
+                priorities: CreatePriorityService(),
+                graphics: new GraphicsPreferenceService(new RealStringValueStore(
+                    RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64),
+                    @"Software\Microsoft\DirectX\UserGpuPreferences")),
+                worker: new RunasElevatedWorker(),
+                config: config));
         _ = vm.LoadAsync(); // kick off the first scan; UI binds to Rows as it populates
         return vm;
     }

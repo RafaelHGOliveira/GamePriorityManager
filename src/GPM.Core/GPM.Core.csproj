@@ -6,6 +6,9 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="Resolve\known-games.json" />
   </ItemGroup>
 </Project>

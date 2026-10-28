@@ -4,27 +4,36 @@ using System.IO;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GPM.Core.Changes;
 using GPM.Core.Detection.Steam;
-using GPM.Core.Graphics;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
-using GPM.Core.Priority;
 using GPM.Core.Resolve;
-using GPM.Core.Worker;
 
 namespace GPM.App.ViewModels;
 
-public sealed partial class MainViewModel(
-    Func<Task<IReadOnlyList<Game>>> scanGames,
-    IExeResolver resolver,
-    IPriorityService priorities,
-    IElevatedWorker worker,
-    IConfigStore config,
-    GraphicsPreferenceService graphics) : ObservableObject
+public sealed partial class MainViewModel : ObservableObject
 {
-    private readonly Dictionary<string, ExeOverrideState> _states = new(StringComparer.OrdinalIgnoreCase);
-    // keyed by full exe path: Graphics Preferences are per path, unlike the filename-keyed IFEO states
-    private readonly Dictionary<string, GraphicsPreferenceState> _graphics = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Func<Task<IReadOnlyList<Game>>> _scanGames;
+    private readonly IExeResolver _resolver;
+    private readonly IConfigStore _config;
+    private readonly PendingChanges _changes;
+
+    public MainViewModel(
+        Func<Task<IReadOnlyList<Game>>> scanGames,
+        IExeResolver resolver,
+        IConfigStore config,
+        PendingChanges changes)
+    {
+        _scanGames = scanGames;
+        _resolver = resolver;
+        _config = config;
+        _changes = changes;
+        changes.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PendingChanges.Count)) OnPropertyChanged(nameof(PendingCount));
+        };
+    }
 
     private readonly List<GameRowViewModel> _rows = [];
     private ListCollectionView? _visibleRows;
@@ -40,7 +49,7 @@ public sealed partial class MainViewModel(
     // keystroke made it rebuild every row.
     partial void OnSearchTextChanged(string value) => VisibleRows.Refresh();
 
-    [ObservableProperty] private int pendingCount;
+    public int PendingCount => _changes.Count;
     [ObservableProperty] private string? statusMessage;
 
     [ObservableProperty] private bool showIoColumn;
@@ -48,7 +57,7 @@ public sealed partial class MainViewModel(
     [ObservableProperty] private bool betaSourcesEnabled;
     [ObservableProperty] private string theme = "auto";
 
-    public string ConfigPath => config.FilePath;
+    public string ConfigPath => _config.FilePath;
 
     private bool _loadingSettings;
 
@@ -60,12 +69,12 @@ public sealed partial class MainViewModel(
     private void SaveSettings()
     {
         if (_loadingSettings) return;
-        var cfg = config.Load();
+        var cfg = _config.Load();
         cfg.ShowIoColumn = ShowIoColumn;
         cfg.ShowWindowedColumn = ShowWindowedColumn;
         cfg.BetaSourcesEnabled = BetaSourcesEnabled;
         cfg.Theme = Theme;
-        config.Save(cfg);
+        _config.Save(cfg);
     }
 
     [RelayCommand]
@@ -91,7 +100,7 @@ public sealed partial class MainViewModel(
     private async Task LoadCoreAsync(bool forceScan)
     {
         var version = ++_loadVersion;
-        var cfg = config.Load();
+        var cfg = _config.Load();
         _loadingSettings = true;
         ShowIoColumn = cfg.ShowIoColumn;
         ShowWindowedColumn = cfg.ShowWindowedColumn;
@@ -104,7 +113,7 @@ public sealed partial class MainViewModel(
         if (!fromCache)
         {
             StatusMessage = string.Format(Strings.ScanProgress, "stores"); // simplified per-store progress
-            detected = (await scanGames()).ToList();
+            detected = (await _scanGames()).ToList();
             StatusMessage = null;
         }
 
@@ -115,27 +124,22 @@ public sealed partial class MainViewModel(
 
         if (snapshot.CacheChanged)
         {
-            var latest = config.Load(); // settings may have changed while we were off-thread
+            var latest = _config.Load(); // settings may have changed while we were off-thread
             latest.DetectedGames = snapshot.Detected;
-            config.Save(latest);
+            _config.Save(latest);
         }
 
-        // group rows by filename so linked rows share ONE state
+        // rows sharing a filename are Linked Rows (PendingChanges hands them ONE state)
         var linkCounts = snapshot.Games.Where(g => g.ExeName is not null)
             .GroupBy(g => g.ExeName!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
+        _changes.Load(snapshot.Changes);
         _rows.Clear();
-        _states.Clear();
-        _graphics.Clear();
         foreach (var game in snapshot.Games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
         {
-            ExeOverrideState? state = null;
-            if (game.ExeName is string exe)
-            {
-                state = GetOrCreateState(snapshot.GameOverrides[exe]);
-            }
-            var gfx = game.ExePath is string path ? GetOrCreateGraphicsState(path, snapshot.GamePrefs[path]) : null;
+            var state = game.ExeName is string exe ? _changes.PriorityOverride(exe) : null;
+            var gfx = game.ExePath is string path ? _changes.GraphicsPreference(path) : null;
             var row = new GameRowViewModel(game, state, state is null ? 0 : linkCounts[game.ExeName!], gfx);
             if (state is not null) state.PropertyChanged += (_, _) => row.NotifyDirtyChanged();
             if (gfx is not null) gfx.PropertyChanged += (_, _) => row.NotifyDirtyChanged();
@@ -143,15 +147,9 @@ public sealed partial class MainViewModel(
         }
 
         OtherOverrides.Clear();
-        foreach (var o in snapshot.OtherOverrides)
-        {
-            var state = GetOrCreateState(o);
-            OtherOverrides.Add(new OverrideRowViewModel(state,
-                isOrphaned: cfg.ManagedExes.Contains(o.ExeName),
-                hasDebugger: o.HasDebugger));
-        }
+        foreach (var o in _changes.OtherOverrides)
+            OtherOverrides.Add(new OverrideRowViewModel(o.State, o.IsOrphaned, o.State.HasDebugger));
 
-        RecountPending();
         VisibleRows.Refresh(); // _rows is a plain list; the view has to be told it changed
     }
 
@@ -159,9 +157,7 @@ public sealed partial class MainViewModel(
         List<Game> Detected,
         bool CacheChanged,
         List<Game> Games,
-        Dictionary<string, PriorityOverride> GameOverrides,
-        Dictionary<string, GraphicsPreference> GamePrefs,
-        List<PriorityOverride> OtherOverrides);
+        PendingChanges.Snapshot Changes);
 
     /// Runs off the UI thread: touches only the file system, the registry and its arguments.
     private LoadSnapshot BuildSnapshot(GpmConfig cfg, List<Game> detected, bool fromCache)
@@ -203,18 +199,7 @@ public sealed partial class MainViewModel(
         }
         games.AddRange(cfg.ManualGames.Select(g => TryApplyChoice(cfg, g) ?? ApplyResolution(g)));
 
-        var gameOverrides = games.Select(g => g.ExeName).OfType<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(exe => exe, priorities.Read, StringComparer.OrdinalIgnoreCase);
-
-        var gamePrefs = games.Select(g => g.ExePath).OfType<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(p => p, graphics.Read, StringComparer.OrdinalIgnoreCase);
-
-        // Other overrides: everything in IFEO with an override that isn't a detected game
-        var others = priorities.ReadAll().Where(o => !gameOverrides.ContainsKey(o.ExeName)).ToList();
-
-        return new LoadSnapshot(cached, cacheChanged, games, gameOverrides, gamePrefs, others);
+        return new LoadSnapshot(cached, cacheChanged, games, _changes.Read(games));
     }
 
     private static Game? TryApplyChoice(GpmConfig cfg, Game g) =>
@@ -224,7 +209,7 @@ public sealed partial class MainViewModel(
 
     private Game ApplyResolution(Game g)
     {
-        var r = resolver.Resolve(g);
+        var r = _resolver.Resolve(g);
         return g with
         {
             ExePath = r.ExePath ?? g.ExePath,
@@ -237,7 +222,7 @@ public sealed partial class MainViewModel(
 
     public async Task AddManualGameAsync(string exePath)
     {
-        var cfg = config.Load();
+        var cfg = _config.Load();
         cfg.ManualGames.Add(new Game
         {
             Name = Path.GetFileNameWithoutExtension(exePath),
@@ -245,125 +230,49 @@ public sealed partial class MainViewModel(
             InstallDir = Path.GetDirectoryName(exePath),
             ExePath = exePath,
         });
-        config.Save(cfg);
+        _config.Save(cfg);
         await LoadAsync();
     }
 
     public async Task RemoveManualGameAsync(GameRowViewModel row)
     {
         if (row.Game.Store != GameStore.Manual) return;
-        var cfg = config.Load();
+        var cfg = _config.Load();
         cfg.ManualGames.RemoveAll(g => g.ExePath == row.Game.ExePath);
-        config.Save(cfg);
+        _config.Save(cfg);
         await LoadAsync();
     }
 
     public async Task ConfirmExeAsync(GameRowViewModel row, string exePath)
     {
-        var cfg = config.Load();
+        var cfg = _config.Load();
         cfg.ExeChoices[ExeChoiceKey(row.Game)] = exePath;
-        config.Save(cfg);
+        _config.Save(cfg);
         await LoadAsync();
     }
-
-    private ExeOverrideState GetOrCreateState(PriorityOverride actual)
-    {
-        if (_states.TryGetValue(actual.ExeName, out var existing)) return existing;
-        var state = new ExeOverrideState(actual.ExeName, actual.Cpu, actual.Io) { HasDebugger = actual.HasDebugger };
-        state.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(ExeOverrideState.IsDirty)) RecountPending();
-        };
-        _states[state.ExeName] = state;
-        return state;
-    }
-
-    private GraphicsPreferenceState GetOrCreateGraphicsState(string exePath, GraphicsPreference actual)
-    {
-        if (_graphics.TryGetValue(exePath, out var existing)) return existing;
-        var state = new GraphicsPreferenceState(exePath, actual);
-        state.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(GraphicsPreferenceState.IsDirty)) RecountPending();
-        };
-        _graphics[exePath] = state;
-        return state;
-    }
-
-    private void RecountPending() =>
-        PendingCount = _states.Values.Count(s => s.IsDirty) + _graphics.Values.Count(s => s.IsDirty);
 
     [RelayCommand]
     private void Discard()
     {
-        foreach (var s in _states.Values) s.DiscardPending();
-        foreach (var s in _graphics.Values) s.DiscardPending();
+        _changes.Discard();
         StatusMessage = null;
-    }
-
-    /// HKCU, so it needs no elevation: written by the app itself, never by the elevated worker.
-    private void ApplyGraphics(List<GraphicsPreferenceState> dirty)
-    {
-        foreach (var s in dirty)
-        {
-            try
-            {
-                graphics.Write(s.ExePath, s.Pending);
-                s.LastError = null;
-            }
-            catch (Exception e)
-            {
-                s.LastError = e.Message;
-            }
-            // registry is the source of truth: re-read; a failed write stays dirty naturally
-            try { s.SetActual(graphics.Read(s.ExePath)); }
-            catch (Exception e) { s.LastError ??= e.Message; }
-        }
-        RecountPending();
     }
 
     [RelayCommand]
     private async Task ApplyAsync()
     {
-        var dirtyGraphics = _graphics.Values.Where(s => s.IsDirty).ToList();
-        var dirty = _states.Values.Where(s => s.IsDirty).ToList();
-        if (dirty.Count == 0 && dirtyGraphics.Count == 0) return;
-
-        ApplyGraphics(dirtyGraphics);
-        if (dirty.Count == 0)
+        var outcome = await _changes.ApplyAsync();
+        StatusMessage = outcome.Status switch
         {
-            StatusMessage = null; // no CPU/IO change, so no UAC prompt at all
-            return;
-        }
-
-        var ops = dirty.Select(s => new ApplyOp(s.ExeName, s.PendingCpu, s.PendingIo)).ToList();
-        var report = await worker.ApplyAsync(ops);
-        if (report is null)
-        {
-            // changes stay pending (spec "Error handling"); GPU changes were already applied
-            StatusMessage = dirtyGraphics.Count > 0 ? Strings.ApplyCancelledGpuApplied : Strings.ApplyCancelled;
-            return;
-        }
-
-        // attach per-item errors; a rejected batch carries none
-        if (!report.BatchRejected)
-        {
-            foreach (var r in report.Results.Where(r => !r.Success))
-                if (_states.TryGetValue(r.Exe, out var s)) s.LastError = r.Error;
-        }
-
-        // registry is the source of truth: re-read; failed rows stay dirty naturally
-        foreach (var s in dirty)
-        {
-            var actual = priorities.Read(s.ExeName);
-            s.SetRegistry(actual.Cpu, actual.Io);
-        }
-        RecountPending();
-        StatusMessage = null;
-
-        // provenance: remember every exe GPM has managed (for orphan detection)
-        var cfg = config.Load();
-        foreach (var op in ops) cfg.ManagedExes.Add(op.Exe);
-        config.Save(cfg);
+            ApplyStatus.NothingToApply => StatusMessage,
+            // changes stay pending (spec "Error handling")
+            ApplyStatus.UacDeclined => outcome.GraphicsPreferencesWritten
+                ? Strings.ApplyCancelledGpuApplied
+                : Strings.ApplyCancelled,
+            ApplyStatus.Rejected => string.Format(outcome.GraphicsPreferencesWritten
+                ? Strings.ApplyRejectedGpuApplied
+                : Strings.ApplyRejected, outcome.RejectionReason),
+            _ => null,
+        };
     }
 }
