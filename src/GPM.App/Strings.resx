@@ -31,8 +31,8 @@
   <data name="Windowed_On" xml:space="preserve"><value>On</value></data>
   <data name="Windowed_Off" xml:space="preserve"><value>Off</value></data>
   <data name="ApplyCancelledGpuApplied" xml:space="preserve"><value>Apply cancelled — GPU changes were applied, CPU/I-O changes are still pending</value></data>
-  <data name="ApplyRejected" xml:space="preserve"><value>Apply rejected, nothing was written: {0}</value></data>
-  <data name="ApplyRejectedGpuApplied" xml:space="preserve"><value>Apply rejected — GPU changes were applied, CPU/I-O changes were not written: {0}</value></data>
+  <data name="ApplyRejected" xml:space="preserve"><value>Apply failed: {0}. Rows still marked pending were not written.</value></data>
+  <data name="ApplyRejectedGpuApplied" xml:space="preserve"><value>Apply failed: {0}. GPU changes were applied; CPU/I-O rows still marked pending were not written.</value></data>
   <data name="Settings_ShowWindowed" xml:space="preserve"><value>Show windowed optimizations column</value></data>
   <data name="Settings_ShowIo" xml:space="preserve"><value>Show I/O column</value></data>
   <data name="Settings_BetaSources" xml:space="preserve"><value>Beta sources (EA, Ubisoft)</value></data>

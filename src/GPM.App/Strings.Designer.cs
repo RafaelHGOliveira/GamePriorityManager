@@ -389,7 +389,7 @@ namespace GPM.App
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Apply rejected, nothing was written: {0}.
+        ///   Looks up a localized string similar to Apply failed: {0}. Rows still marked pending were not written..
         /// </summary>
         public static string ApplyRejected
         {
@@ -400,7 +400,7 @@ namespace GPM.App
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Apply rejected — GPU changes were applied, CPU/I-O changes were not written: {0}.
+        ///   Looks up a localized string similar to Apply failed: {0}. GPU changes were applied; CPU/I-O rows still marked pending were not written..
         /// </summary>
         public static string ApplyRejectedGpuApplied
         {

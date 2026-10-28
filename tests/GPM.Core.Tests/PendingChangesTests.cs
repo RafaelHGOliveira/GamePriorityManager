@@ -33,13 +33,45 @@ public class PendingChangesTests
     /// Lets the Elevated Worker's write of one exe fail, as an ACL-protected IFEO key would.
     private sealed class FailingFor(string exe, IPriorityService inner) : IPriorityService
     {
+        public bool Failing { get; set; } = true;
+        /// Writes the CPU value before failing, as PriorityService does when the IO write throws.
+        public bool Halfway { get; init; }
+
         public PriorityOverride Read(string exeName) => inner.Read(exeName);
         public IReadOnlyList<PriorityOverride> ReadAll() => inner.ReadAll();
         public void Write(string exeName, int? cpu, int? io)
         {
-            if (exeName == exe) throw new UnauthorizedAccessException("access denied");
+            if (Failing && exeName == exe)
+            {
+                if (Halfway) inner.Write(exeName, cpu, inner.Read(exeName).Io);
+                throw new UnauthorizedAccessException("access denied");
+            }
             inner.Write(exeName, cpu, io);
         }
+    }
+
+    /// Writes the whole batch, then dies before its report, as a killed or disk-full worker would.
+    private sealed class DiesAfterWriting(IPriorityService priorities) : IElevatedWorker
+    {
+        public Task<ApplyReport?> ApplyAsync(IReadOnlyList<ApplyOp> ops)
+        {
+            foreach (var op in ops) priorities.Write(op.Exe, op.Cpu, op.Io);
+            return Task.FromResult<ApplyReport?>(new ApplyReport(true, "worker exited with code 4 without a report", []));
+        }
+    }
+
+    private sealed class Throws : IElevatedWorker
+    {
+        public Task<ApplyReport?> ApplyAsync(IReadOnlyList<ApplyOp> ops) =>
+            throw new IOException("result.json is locked");
+    }
+
+    private sealed class ReadOnlyStore : IStringValueStore
+    {
+        public string? Get(string name) => null;
+        public void Set(string name, string value) => throw new UnauthorizedAccessException("access denied");
+        public void Delete(string name) => throw new UnauthorizedAccessException("access denied");
+        public IReadOnlyList<string> GetValueNames() => [];
     }
 
     private readonly InMemoryPriorityService _priorities = new();
@@ -184,7 +216,98 @@ public class PendingChangesTests
     }
 
     [Fact]
-    public async Task only_exes_written_successfully_are_recorded_as_managed()
+    public async Task a_successful_retry_clears_the_earlier_error()
+    {
+        var failing = new FailingFor("bad.exe", _priorities);
+        var changes = Loaded(new InProcessElevatedWorker(failing), G(@"C:\g\bad.exe"));
+        var state = changes.PriorityOverride("bad.exe");
+        state.PendingCpu = 3;
+        await changes.ApplyAsync();
+
+        failing.Failing = false; // the ACL got fixed
+        await changes.ApplyAsync();
+
+        Assert.False(state.IsDirty);
+        Assert.Null(state.LastError);
+    }
+
+    [Fact]
+    public async Task a_write_that_fails_halfway_is_still_recorded_as_managed()
+    {
+        var worker = new InProcessElevatedWorker(new FailingFor("cs2.exe", _priorities) { Halfway = true });
+        var changes = Loaded(worker, G(CsPath));
+        var state = changes.PriorityOverride("cs2.exe");
+        state.PendingCpu = 3;
+        state.PendingIo = 0;
+
+        await changes.ApplyAsync();
+
+        Assert.Equal((3, (int?)null), _priorities.Data["cs2.exe"]); // CPU landed, IO did not
+        Assert.True(state.IsDirty);
+        Assert.Equal("access denied", state.LastError);
+        Assert.Contains("cs2.exe", _config.Cfg.ManagedExes);
+    }
+
+    [Fact]
+    public async Task a_worker_that_dies_after_writing_shows_what_landed_and_records_it()
+    {
+        var changes = Loaded(new DiesAfterWriting(_priorities), G(@"C:\g\eldenring.exe"));
+        var state = changes.PriorityOverride("eldenring.exe");
+        state.PendingCpu = 3;
+
+        var outcome = await changes.ApplyAsync();
+
+        Assert.Equal(ApplyStatus.Rejected, outcome.Status);
+        Assert.False(state.IsDirty); // the registry, re-read, says it was written
+        Assert.Contains("eldenring.exe", _config.Cfg.ManagedExes);
+    }
+
+    [Fact]
+    public async Task a_worker_that_throws_becomes_a_rejected_outcome()
+    {
+        var changes = Loaded(new Throws(), G(@"C:\g\eldenring.exe"));
+        changes.PriorityOverride("eldenring.exe").PendingCpu = 3;
+
+        var outcome = await changes.ApplyAsync();
+
+        Assert.Equal(new ApplyOutcome(ApplyStatus.Rejected, false, "result.json is locked"), outcome);
+        Assert.Equal(1, changes.Count);
+    }
+
+    [Fact]
+    public async Task graphics_preferences_that_all_fail_are_not_reported_as_written()
+    {
+        var changes = new PendingChanges(_priorities, new GraphicsPreferenceService(new ReadOnlyStore()),
+            TestWorkers.DeclinedUac, _config);
+        changes.Load(changes.Read([G(CsPath)]));
+        changes.GraphicsPreference(CsPath).PendingGpu = 2;
+        changes.PriorityOverride("cs2.exe").PendingCpu = 3;
+
+        var outcome = await changes.ApplyAsync();
+
+        Assert.Equal(new ApplyOutcome(ApplyStatus.UacDeclined, GraphicsPreferencesWritten: false), outcome);
+        Assert.Equal("access denied", changes.GraphicsPreference(CsPath).LastError);
+    }
+
+    [Fact]
+    public void orphaned_flag_uses_provenance_as_of_load_not_read()
+    {
+        _priorities.Write("uninstalled.exe", 3, null);
+        var changes = new PendingChanges(_priorities, new GraphicsPreferenceService(_store),
+            new InProcessElevatedWorker(_priorities), _config);
+
+        var snapshot = changes.Read([G(CsPath)]); // off the UI thread in the app
+        // the UI thread saved games.json meanwhile (a fresh object, as JsonConfigStore deserializes one)
+        var saved = new GpmConfig();
+        saved.ManagedExes.Add("uninstalled.exe");
+        _config.Save(saved);
+        changes.Load(snapshot);
+
+        Assert.True(Assert.Single(changes.OtherOverrides).IsOrphaned);
+    }
+
+    [Fact]
+    public async Task an_exe_whose_write_changed_nothing_is_not_recorded_as_managed()
     {
         var worker = new InProcessElevatedWorker(new FailingFor("bad.exe", _priorities));
         var changes = Loaded(worker, G(@"C:\g\bad.exe"), G(@"C:\g\good.exe"));

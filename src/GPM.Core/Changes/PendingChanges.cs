@@ -38,22 +38,20 @@ public sealed partial class PendingChanges(
         internal Snapshot(
             Dictionary<string, PriorityOverride> gameOverrides,
             Dictionary<string, GraphicsPreference> gamePrefs,
-            List<PriorityOverride> others,
-            HashSet<string> managedExes)
+            List<PriorityOverride> others)
         {
             GameOverrides = gameOverrides;
             GamePrefs = gamePrefs;
             Others = others;
-            ManagedExes = managedExes;
         }
 
         internal Dictionary<string, PriorityOverride> GameOverrides { get; }
         internal Dictionary<string, GraphicsPreference> GamePrefs { get; }
         internal List<PriorityOverride> Others { get; }
-        internal HashSet<string> ManagedExes { get; }
     }
 
-    /// Touches only the registry and games.json, so it is safe (and meant) to run off the UI thread.
+    /// Touches only the registry, so it is safe (and meant) to run off the UI thread.
+    /// games.json stays out of it: the UI thread may be saving it at the same moment.
     public Snapshot Read(IEnumerable<Game> games)
     {
         var list = games.ToList();
@@ -65,18 +63,19 @@ public sealed partial class PendingChanges(
             .ToDictionary(p => p, graphics.Read, StringComparer.OrdinalIgnoreCase);
         // Other overrides: everything in IFEO with an override that isn't a detected game
         var others = priorities.ReadAll().Where(o => !gameOverrides.ContainsKey(o.ExeName)).ToList();
-        return new Snapshot(gameOverrides, gamePrefs, others, config.Load().ManagedExes);
+        return new Snapshot(gameOverrides, gamePrefs, others);
     }
 
-    /// Replaces every tracked state (pending edits included) with the snapshot.
+    /// Replaces every tracked state (pending edits included) with the snapshot. UI thread.
     public void Load(Snapshot snapshot)
     {
+        var managed = config.Load().ManagedExes;
         _overrides.Clear();
         _graphics.Clear();
         foreach (var o in snapshot.GameOverrides.Values) Track(o);
         foreach (var (path, pref) in snapshot.GamePrefs) Track(path, pref);
         OtherOverrides = snapshot.Others
-            .Select(o => new OtherOverride(Track(o), snapshot.ManagedExes.Contains(o.ExeName)))
+            .Select(o => new OtherOverride(Track(o), managed.Contains(o.ExeName)))
             .ToList();
         Recount();
     }
@@ -103,42 +102,63 @@ public sealed partial class PendingChanges(
         var dirty = _overrides.Values.Where(s => s.IsDirty).ToList();
         if (dirty.Count == 0 && dirtyGraphics.Count == 0) return new(ApplyStatus.NothingToApply, false);
 
-        ApplyGraphics(dirtyGraphics);
-        var wroteGraphics = dirtyGraphics.Count > 0;
+        var wroteGraphics = ApplyGraphics(dirtyGraphics);
         if (dirty.Count == 0) return new(ApplyStatus.Applied, wroteGraphics); // no UAC prompt at all
 
         var ops = dirty.Select(s => new ApplyOp(s.ExeName, s.PendingCpu, s.PendingIo)).ToList();
-        var report = await worker.ApplyAsync(ops);
+        var before = dirty.ToDictionary(s => s.ExeName, s => (s.RegistryCpu, s.RegistryIo));
+        ApplyReport? report;
+        try { report = await worker.ApplyAsync(ops); }
+        catch (Exception e) { report = new ApplyReport(true, e.Message, []); } // ops.json, result.json, process start
         if (report is null) return new(ApplyStatus.UacDeclined, wroteGraphics); // changes stay pending
-        // nothing was written; the reason is batch-wide, so no row gets a LastError
-        if (report.BatchRejected) return new(ApplyStatus.Rejected, wroteGraphics, report.BatchError);
 
-        foreach (var r in report.Results.Where(r => !r.Success))
-            if (_overrides.TryGetValue(r.Exe, out var s)) s.LastError = r.Error;
+        foreach (var s in dirty) s.LastError = null;
+        // a rejected batch carries no per-item errors: its reason is batch-wide
+        if (!report.BatchRejected)
+        {
+            foreach (var r in report.Results.Where(r => !r.Success))
+                if (_overrides.TryGetValue(r.Exe, out var s)) s.LastError = r.Error;
+        }
 
+        // Re-read even a rejected batch: a worker that died without its report may
+        // have written some ops already, and only the registry knows which.
         foreach (var s in dirty)
         {
-            var actual = priorities.Read(s.ExeName);
-            s.SetRegistry(actual.Cpu, actual.Io);
+            try
+            {
+                var actual = priorities.Read(s.ExeName);
+                s.SetRegistry(actual.Cpu, actual.Io);
+            }
+            catch (Exception e) { s.LastError ??= e.Message; }
         }
         Recount();
 
-        // provenance: remember every exe GPM has written (for orphan detection)
-        var cfg = config.Load();
-        foreach (var r in report.Results.Where(r => r.Success)) cfg.ManagedExes.Add(r.Exe);
-        config.Save(cfg);
+        // provenance (for orphan detection): every exe whose override this Apply
+        // changed, including a write that failed halfway
+        var changed = dirty.Where(s => (s.RegistryCpu, s.RegistryIo) != before[s.ExeName]).ToList();
+        if (changed.Count > 0)
+        {
+            var cfg = config.Load();
+            foreach (var s in changed) cfg.ManagedExes.Add(s.ExeName);
+            config.Save(cfg);
+        }
 
-        return new(ApplyStatus.Applied, wroteGraphics);
+        return report.BatchRejected
+            ? new(ApplyStatus.Rejected, wroteGraphics, report.BatchError)
+            : new(ApplyStatus.Applied, wroteGraphics);
     }
 
-    private void ApplyGraphics(List<GraphicsPreferenceState> dirty)
+    /// True when at least one Graphics Preference was written.
+    private bool ApplyGraphics(List<GraphicsPreferenceState> dirty)
     {
+        var wrote = false;
         foreach (var s in dirty)
         {
             try
             {
                 graphics.Write(s.ExePath, s.Pending);
                 s.LastError = null;
+                wrote = true;
             }
             catch (Exception e)
             {
@@ -148,6 +168,7 @@ public sealed partial class PendingChanges(
             catch (Exception e) { s.LastError ??= e.Message; }
         }
         Recount();
+        return wrote;
     }
 
     private ExeOverrideState Track(PriorityOverride actual)
