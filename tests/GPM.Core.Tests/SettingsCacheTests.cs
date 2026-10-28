@@ -67,4 +67,18 @@ public class SettingsCacheTests
         Assert.Equal("light", cfg.Cfg.Theme);
         Assert.True(cfg.Cfg.ShowIoColumn); // untouched settings survive
     }
+
+    [Fact]
+    public async Task show_windowed_column_setting_is_persisted()
+    {
+        var cfg = new MemoryConfigStore();
+        var vm = new MainViewModel(
+            () => Task.FromResult<IReadOnlyList<Game>>([]),
+            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
+        await vm.LoadAsync();
+
+        vm.ShowWindowedColumn = true;
+
+        Assert.True(cfg.Cfg.ShowWindowedColumn);
+    }
 }
