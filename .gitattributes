@@ -1,0 +1,3 @@
+# Windows repo: CRLF in the working tree, LF in the index, whatever core.autocrlf says.
+* text=auto eol=crlf
+*.sh text eol=lf
