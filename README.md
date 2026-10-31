@@ -106,16 +106,21 @@ smoke test that validates the end-to-end behavior on a real machine.
 
 ## Safety notes
 
-- GPM only ever touches `CpuPriorityClass` and `IoPriority` under an exe's
-  `PerfOptions` subkey — never any other registry value or key.
-- Overrides are keyed by the lowercase exe filename; removing an override deletes
-  exactly those values.
-- The elevated worker is short-lived and runs only when you apply changes.
+GPM writes exactly two things in the registry — never any other value or key:
+
+- `CpuPriorityClass` and `IoPriority` under an exe's IFEO `PerfOptions` subkey
+  (HKLM), keyed by the lowercase exe filename. Applying these prompts for
+  elevation (UAC); removing an override deletes exactly those values.
+- The `GpuPreference` and `SwapEffectUpgradeEnable` tokens inside the exe's
+  full-path value in `HKCU\Software\Microsoft\DirectX\UserGpuPreferences` (the
+  same setting as Windows' Graphics settings page). Written without elevation;
+  every other token there is left untouched.
+
+The elevated worker is short-lived and runs only when you apply CPU/IO changes.
 
 ## Status
 
-Core functionality is implemented, reviewed, and covered by tests. See
-[`handoff.md`](handoff.md) for detailed live status and known caveats.
+Core functionality is implemented, reviewed, and covered by tests.
 
 ## License
 
