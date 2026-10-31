@@ -14,14 +14,24 @@
     <ProjectReference Include="..\GPM.Core\GPM.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Update="Strings.resx">
-      <Generator>PublicResXFileCodeGenerator</Generator>
-      <LastGenOutput>Strings.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
     <Compile Update="Strings.Designer.cs">
-      <DesignTime>True</DesignTime>
       <AutoGen>True</AutoGen>
       <DependentUpon>Strings.resx</DependentUpon>
     </Compile>
   </ItemGroup>
+  <!-- Strings.Designer.cs is regenerated from Strings.resx by the build: edit only the
+       .resx. It stays in src/ (not obj/) because XAML's x:Static compiles in a temporary
+       project that only sees static Compile items. -->
+  <Target Name="GenerateStrings" BeforeTargets="MarkupCompilePass1;CoreCompile"
+          Inputs="Strings.resx" Outputs="Strings.Designer.cs">
+    <GenerateResource Sources="Strings.resx"
+                      OutputResources="$(IntermediateOutputPath)GenerateStrings.resources"
+                      StronglyTypedLanguage="CSharp"
+                      StronglyTypedNamespace="GPM.App"
+                      StronglyTypedClassName="Strings"
+                      StronglyTypedManifestPrefix="GPM.App"
+                      StronglyTypedFileName="Strings.Designer.cs"
+                      PublicClass="true"
+                      ExecuteAsTool="false" />
+  </Target>
 </Project>
