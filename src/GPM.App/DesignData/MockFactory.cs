@@ -1,6 +1,7 @@
 using GPM.App.ViewModels;
 using GPM.Core.Changes;
 using GPM.Core.Graphics;
+using GPM.Core.Library;
 using GPM.Core.Models;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
@@ -40,7 +41,7 @@ public static class MockFactory
             new() { Name = "Some UE Game", Store = GameStore.Gog, ExePath = @"C:\mock\game.exe" }, // generic-name warning
         ];
         var config = new MemoryConfigStore();
-        var vm = new MainViewModel(() => Task.FromResult(games), new PassthroughResolver(), config,
+        var vm = new MainViewModel(new GameLibrary(() => Task.FromResult(games), new PassthroughResolver(), config), config,
             new PendingChanges(svc, new GraphicsPreferenceService(new InMemoryStringValueStore()),
                 new InProcessElevatedWorker(svc), config));
         _ = vm.LoadAsync();

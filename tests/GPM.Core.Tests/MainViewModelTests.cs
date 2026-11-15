@@ -1,7 +1,7 @@
 using GPM.App.ViewModels;
 using GPM.Core.Changes;
+using GPM.Core.Library;
 using GPM.Core.Models;
-using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Resolve;
 using GPM.Core.Worker;
@@ -17,21 +17,16 @@ public class MainViewModelTests
         public ExeResolution Resolve(Game game) => new(game.ExePath, false, []);
     }
 
-    private sealed class TempConfigStore : IConfigStore
-    {
-        private GpmConfig _cfg = new();
-        public string FilePath => "test://games.json";
-        public GpmConfig Load() => _cfg;
-        public void Save(GpmConfig config) => _cfg = config;
-    }
-
     private static Game G(string name, string exe, GameStore store = GameStore.Steam) =>
         new() { Name = name, Store = store, ExePath = exe };
 
-    private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games)
+    private static MainViewModel Make(InMemoryPriorityService svc, bool declineUac = false, params Game[] games) =>
+        Make(svc, () => Task.FromResult<IReadOnlyList<Game>>(games), declineUac);
+
+    private static MainViewModel Make(InMemoryPriorityService svc, Func<Task<IReadOnlyList<Game>>> scan, bool declineUac = false)
     {
-        var cfg = new TempConfigStore();
-        return new(() => Task.FromResult<IReadOnlyList<Game>>(games), new PassthroughResolver(), cfg,
+        var cfg = new MemoryConfigStore();
+        return new(new GameLibrary(scan, new PassthroughResolver(), cfg), cfg,
             new PendingChanges(svc, TestGraphics.New(),
                 declineUac ? TestWorkers.DeclinedUac : new InProcessElevatedWorker(svc), cfg));
     }
@@ -53,15 +48,25 @@ public class MainViewModelTests
     [Fact]
     public async Task load_failure_surfaces_in_status_instead_of_throwing()
     {
-        var svc = new InMemoryPriorityService();
-        var cfg = new TempConfigStore();
-        var vm = new MainViewModel(
-            () => throw new InvalidOperationException("boom"),
-            new PassthroughResolver(), cfg, new PendingChanges(svc, TestGraphics.New(), new InProcessElevatedWorker(svc), cfg));
+        var vm = Make(new InMemoryPriorityService(), () => throw new InvalidOperationException("boom"));
 
         await vm.LoadAsync();
 
         Assert.Contains("boom", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task manual_game_shows_as_a_removable_row_until_removed()
+    {
+        var vm = Make(new InMemoryPriorityService());
+        await vm.LoadAsync();
+
+        await vm.AddManualGameAsync(@"C:\tools\voicemeeterpro.exe");
+        var row = Assert.Single(vm.Rows);
+        Assert.True(row.IsManual);
+
+        await vm.RemoveManualGameAsync(row);
+        Assert.Empty(vm.Rows);
     }
 
     [Fact]

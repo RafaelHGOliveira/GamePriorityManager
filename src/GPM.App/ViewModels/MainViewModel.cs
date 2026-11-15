@@ -1,32 +1,26 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.IO;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GPM.Core.Changes;
-using GPM.Core.Detection.Steam;
-using GPM.Core.Models;
+using GPM.Core.Library;
 using GPM.Core.Persistence;
-using GPM.Core.Resolve;
 
 namespace GPM.App.ViewModels;
 
 public sealed partial class MainViewModel : ObservableObject
 {
-    private readonly Func<Task<IReadOnlyList<Game>>> _scanGames;
-    private readonly IExeResolver _resolver;
+    private readonly GameLibrary _library;
     private readonly IConfigStore _config;
     private readonly PendingChanges _changes;
 
     public MainViewModel(
-        Func<Task<IReadOnlyList<Game>>> scanGames,
-        IExeResolver resolver,
+        GameLibrary library,
         IConfigStore config,
         PendingChanges changes)
     {
-        _scanGames = scanGames;
-        _resolver = resolver;
+        _library = library;
         _config = config;
         _changes = changes;
         changes.PropertyChanged += (_, e) =>
@@ -37,7 +31,6 @@ public sealed partial class MainViewModel : ObservableObject
 
     private readonly List<GameRowViewModel> _rows = [];
     private ListCollectionView? _visibleRows;
-    private int _loadVersion;
 
     public IReadOnlyList<GameRowViewModel> Rows => _rows;
     public ObservableCollection<OverrideRowViewModel> OtherOverrides { get; } = [];
@@ -99,7 +92,6 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task LoadCoreAsync(bool forceScan)
     {
-        var version = ++_loadVersion;
         var cfg = _config.Load();
         _loadingSettings = true;
         ShowIoColumn = cfg.ShowIoColumn;
@@ -108,35 +100,23 @@ public sealed partial class MainViewModel : ObservableObject
         Theme = cfg.Theme;
         _loadingSettings = false;
 
-        var fromCache = !forceScan && cfg.DetectedGames.Count > 0; // spec: cached in games.json
-        var detected = cfg.DetectedGames;
-        if (!fromCache)
+        var scanned = false;
+        var games = await _library.LoadAsync(forceScan, () =>
         {
+            scanned = true;
             StatusMessage = string.Format(Strings.ScanProgress, "stores"); // simplified per-store progress
-            detected = (await _scanGames()).ToList();
-            StatusMessage = null;
-        }
-
-        // Exe resolution walks every install dir and the IFEO reads hit the registry:
-        // both are far too slow for the UI thread.
-        var snapshot = await Task.Run(() => BuildSnapshot(cfg, detected, fromCache));
-        if (version != _loadVersion) return; // a newer load superseded this one
-
-        if (snapshot.CacheChanged)
-        {
-            var latest = _config.Load(); // settings may have changed while we were off-thread
-            latest.DetectedGames = snapshot.Detected;
-            _config.Save(latest);
-        }
+        });
+        if (scanned) StatusMessage = null;
+        // null / false: a newer load superseded this one
+        if (games is null || !await _changes.LoadAsync(games)) return;
 
         // rows sharing a filename are Linked Rows (PendingChanges hands them ONE state)
-        var linkCounts = snapshot.Games.Where(g => g.ExeName is not null)
+        var linkCounts = games.Where(g => g.ExeName is not null)
             .GroupBy(g => g.ExeName!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-        _changes.Load(snapshot.Changes);
         _rows.Clear();
-        foreach (var game in snapshot.Games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var game in games.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
         {
             var state = game.ExeName is string exe ? _changes.PriorityOverride(exe) : null;
             var gfx = game.ExePath is string path ? _changes.GraphicsPreference(path) : null;
@@ -153,101 +133,20 @@ public sealed partial class MainViewModel : ObservableObject
         VisibleRows.Refresh(); // _rows is a plain list; the view has to be told it changed
     }
 
-    private sealed record LoadSnapshot(
-        List<Game> Detected,
-        bool CacheChanged,
-        List<Game> Games,
-        PendingChanges.Snapshot Changes);
-
-    /// Runs off the UI thread: touches only the file system, the registry and its arguments.
-    private LoadSnapshot BuildSnapshot(GpmConfig cfg, List<Game> detected, bool fromCache)
-    {
-        var cacheChanged = !fromCache;
-
-        // Non-game Steam tools (redistributables, runtimes, Proton) may still sit in an
-        // older games.json cache that was written before they were filtered at scan time.
-        // Drop them here too so they never appear regardless of cache vs. fresh scan, and
-        // heal the cache so it only happens once.
-        var withoutTools = detected.Where(g => !SteamManifests.IsNonGameApp(g.Name)).ToList();
-        if (withoutTools.Count != detected.Count) cacheChanged = true;
-
-        // The resolved exe is cached in games.json, so the install-dir walk only runs
-        // after a rescan, or when the cached exe is gone (game updated, moved, uninstalled).
-        var cached = new List<Game>();
-        var games = new List<Game>();
-        foreach (var original in withoutTools)
-        {
-            var g = original;
-            if (fromCache && g.ExePath is not null && !File.Exists(g.ExePath))
-            {
-                g = g with { ExePath = null, NeedsExeConfirmation = false, ExeCandidates = [] };
-                cacheChanged = true;
-            }
-            if (TryApplyChoice(cfg, g) is { } chosen)
-            {
-                cached.Add(g);
-                games.Add(chosen);
-                continue;
-            }
-            if (g.ExePath is null)
-            {
-                g = ApplyResolution(g);
-                cacheChanged |= g.ExePath is not null;
-            }
-            cached.Add(g);
-            games.Add(g);
-        }
-        games.AddRange(cfg.ManualGames.Select(g => TryApplyChoice(cfg, g) ?? ApplyResolution(g)));
-
-        return new LoadSnapshot(cached, cacheChanged, games, _changes.Read(games));
-    }
-
-    private static Game? TryApplyChoice(GpmConfig cfg, Game g) =>
-        cfg.ExeChoices.TryGetValue(ExeChoiceKey(g), out var chosen) && File.Exists(chosen)
-            ? g with { ExePath = chosen, NeedsExeConfirmation = false, ExeCandidates = [] }
-            : null;
-
-    private Game ApplyResolution(Game g)
-    {
-        var r = _resolver.Resolve(g);
-        return g with
-        {
-            ExePath = r.ExePath ?? g.ExePath,
-            NeedsExeConfirmation = r.NeedsConfirmation,
-            ExeCandidates = r.Candidates,
-        };
-    }
-
-    private static string ExeChoiceKey(Game g) => $"{g.Store}:{g.StoreId ?? g.InstallDir ?? g.Name}";
-
     public async Task AddManualGameAsync(string exePath)
     {
-        var cfg = _config.Load();
-        cfg.ManualGames.Add(new Game
-        {
-            Name = Path.GetFileNameWithoutExtension(exePath),
-            Store = GameStore.Manual,
-            InstallDir = Path.GetDirectoryName(exePath),
-            ExePath = exePath,
-        });
-        _config.Save(cfg);
+        _library.AddManual(exePath);
         await LoadAsync();
     }
 
     public async Task RemoveManualGameAsync(GameRowViewModel row)
     {
-        if (row.Game.Store != GameStore.Manual) return;
-        var cfg = _config.Load();
-        cfg.ManualGames.RemoveAll(g => g.ExePath == row.Game.ExePath);
-        _config.Save(cfg);
-        await LoadAsync();
+        if (_library.RemoveManual(row.Game)) await LoadAsync();
     }
 
     public async Task ConfirmExeAsync(GameRowViewModel row, string exePath)
     {
-        var cfg = _config.Load();
-        cfg.ExeChoices[ExeChoiceKey(row.Game)] = exePath;
-        _config.Save(cfg);
+        _library.ChooseExe(row.Game, exePath);
         await LoadAsync();
     }
 

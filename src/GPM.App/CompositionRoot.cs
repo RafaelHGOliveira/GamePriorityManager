@@ -4,6 +4,7 @@ using GPM.Core.Changes;
 using GPM.Core.Detection;
 using GPM.Core.Detection.Steam;
 using GPM.Core.Graphics;
+using GPM.Core.Library;
 using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Registry;
@@ -37,8 +38,10 @@ public static class CompositionRoot
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GPM"));
 
         var vm = new MainViewModel(
-            scanGames: () => scanner.ScanAsync(config.Load().BetaSourcesEnabled),
-            resolver: new ExeResolver(KnownGames.LoadEmbedded()),
+            library: new GameLibrary(
+                scanStores: () => scanner.ScanAsync(config.Load().BetaSourcesEnabled),
+                resolver: new ExeResolver(KnownGames.LoadEmbedded()),
+                config: config),
             config: config,
             changes: new PendingChanges(
                 priorities: CreatePriorityService(),

@@ -19,6 +19,7 @@ public sealed record ApplyOutcome(ApplyStatus Status, bool GraphicsPreferencesWr
 /// Every Pending Change GPM tracks, and Apply. Priority Overrides are keyed by exe
 /// filename (linked rows share ONE state), Graphics Preferences by full exe path (ADR-0001).
 /// Owns every read and write of both, and the provenance behind Orphaned Overrides.
+/// Call it from the UI thread: it does the registry work off that thread itself.
 public sealed partial class PendingChanges(
     IPriorityService priorities,
     GraphicsPreferenceService graphics,
@@ -28,37 +29,47 @@ public sealed partial class PendingChanges(
     private readonly Dictionary<string, ExeOverrideState> _overrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, GraphicsPreferenceState> _graphics = new(StringComparer.OrdinalIgnoreCase);
 
+    /// One LoadAsync or ApplyAsync at a time: a Load mid-Apply would swap the states the
+    /// Apply re-reads into (ADR-0004) for ones read before the worker wrote.
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private int _loadVersion;
+
     [ObservableProperty] private int count;
 
     public IReadOnlyList<OtherOverride> OtherOverrides { get; private set; } = [];
 
-    /// What Windows has now for these games, plus the Other Overrides.
-    public sealed class Snapshot
-    {
-        internal Snapshot(
-            Dictionary<string, PriorityOverride> gameOverrides,
-            Dictionary<string, GraphicsPreference> gamePrefs,
-            List<PriorityOverride> others)
-        {
-            GameOverrides = gameOverrides;
-            GamePrefs = gamePrefs;
-            Others = others;
-        }
+    private sealed record Snapshot(
+        Dictionary<string, PriorityOverride> GameOverrides,
+        Dictionary<string, GraphicsPreference> GamePrefs,
+        List<PriorityOverride> Others);
 
-        internal Dictionary<string, PriorityOverride> GameOverrides { get; }
-        internal Dictionary<string, GraphicsPreference> GamePrefs { get; }
-        internal List<PriorityOverride> Others { get; }
+    /// Reads what Windows has now for these games, plus the Other Overrides, and replaces
+    /// every tracked state with it (pending edits included). Waits for an Apply in flight.
+    /// Returns false, changing nothing, when a later LoadAsync superseded this one.
+    public async Task<bool> LoadAsync(IEnumerable<Game> games)
+    {
+        var version = ++_loadVersion;
+        var list = games.ToList();
+        await _gate.WaitAsync();
+        try
+        {
+            if (version != _loadVersion) return false;
+            var snapshot = await Task.Run(() => Read(list));
+            if (version != _loadVersion) return false;
+            Load(snapshot);
+            return true;
+        }
+        finally { _gate.Release(); }
     }
 
-    /// Touches only the registry, so it is safe (and meant) to run off the UI thread.
-    /// games.json stays out of it: the UI thread may be saving it at the same moment.
-    public Snapshot Read(IEnumerable<Game> games)
+    /// Touches only the registry. games.json stays out of it: the UI thread may be
+    /// saving it at the same moment.
+    private Snapshot Read(List<Game> games)
     {
-        var list = games.ToList();
-        var gameOverrides = list.Select(g => g.ExeName).OfType<string>()
+        var gameOverrides = games.Select(g => g.ExeName).OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToDictionary(exe => exe, priorities.Read, StringComparer.OrdinalIgnoreCase);
-        var gamePrefs = list.Select(g => g.ExePath).OfType<string>()
+        var gamePrefs = games.Select(g => g.ExePath).OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToDictionary(p => p, graphics.Read, StringComparer.OrdinalIgnoreCase);
         // Other overrides: everything in IFEO with an override that isn't a detected game
@@ -66,8 +77,7 @@ public sealed partial class PendingChanges(
         return new Snapshot(gameOverrides, gamePrefs, others);
     }
 
-    /// Replaces every tracked state (pending edits included) with the snapshot. UI thread.
-    public void Load(Snapshot snapshot)
+    private void Load(Snapshot snapshot)
     {
         var managed = config.Load().ManagedExes;
         _overrides.Clear();
@@ -95,14 +105,21 @@ public sealed partial class PendingChanges(
     /// Graphics Preferences first (HKCU, no elevation, never the Elevated Worker), then
     /// every pending Priority Override in one batch behind a single UAC prompt.
     /// The registry is the source of truth: everything applied is re-read, so a failed
-    /// write simply stays pending.
+    /// write simply stays pending. A LoadAsync waits until this finishes.
     public async Task<ApplyOutcome> ApplyAsync()
+    {
+        await _gate.WaitAsync();
+        try { return await ApplyCoreAsync(); }
+        finally { _gate.Release(); }
+    }
+
+    private async Task<ApplyOutcome> ApplyCoreAsync()
     {
         var dirtyGraphics = _graphics.Values.Where(s => s.IsDirty).ToList();
         var dirty = _overrides.Values.Where(s => s.IsDirty).ToList();
         if (dirty.Count == 0 && dirtyGraphics.Count == 0) return new(ApplyStatus.NothingToApply, false);
 
-        var wroteGraphics = ApplyGraphics(dirtyGraphics);
+        var wroteGraphics = await ApplyGraphicsAsync(dirtyGraphics);
         if (dirty.Count == 0) return new(ApplyStatus.Applied, wroteGraphics); // no UAC prompt at all
 
         var ops = dirty.Select(s => new ApplyOp(s.ExeName, s.PendingCpu, s.PendingIo)).ToList();
@@ -122,14 +139,12 @@ public sealed partial class PendingChanges(
 
         // Re-read even a rejected batch: a worker that died without its report may
         // have written some ops already, and only the registry knows which.
-        foreach (var s in dirty)
+        var exes = dirty.Select(s => s.ExeName).ToList();
+        var reads = await Task.Run(() => exes.Select(exe => Attempt(() => priorities.Read(exe))).ToList());
+        for (var i = 0; i < dirty.Count; i++)
         {
-            try
-            {
-                var actual = priorities.Read(s.ExeName);
-                s.SetRegistry(actual.Cpu, actual.Io);
-            }
-            catch (Exception e) { s.LastError ??= e.Message; }
+            if (reads[i].Value is { } actual) dirty[i].SetRegistry(actual.Cpu, actual.Io);
+            else dirty[i].LastError ??= reads[i].Error;
         }
         Recount();
 
@@ -149,26 +164,33 @@ public sealed partial class PendingChanges(
     }
 
     /// True when at least one Graphics Preference was written.
-    private bool ApplyGraphics(List<GraphicsPreferenceState> dirty)
+    private async Task<bool> ApplyGraphicsAsync(List<GraphicsPreferenceState> dirty)
     {
+        var writes = dirty.Select(s => (s.ExePath, s.Pending)).ToList();
+        var results = await Task.Run(() => writes.Select(w => (
+            Write: Attempt(() => { graphics.Write(w.ExePath, w.Pending); return w.Pending; }),
+            Read: Attempt(() => graphics.Read(w.ExePath)))).ToList());
+
         var wrote = false;
-        foreach (var s in dirty)
+        for (var i = 0; i < dirty.Count; i++)
         {
-            try
-            {
-                graphics.Write(s.ExePath, s.Pending);
-                s.LastError = null;
-                wrote = true;
-            }
-            catch (Exception e)
-            {
-                s.LastError = e.Message;
-            }
-            try { s.SetActual(graphics.Read(s.ExePath)); }
-            catch (Exception e) { s.LastError ??= e.Message; }
+            var (write, read) = results[i];
+            dirty[i].LastError = write.Error;
+            wrote |= write.Error is null;
+            if (read.Value is { } actual) dirty[i].SetActual(actual);
+            else dirty[i].LastError ??= read.Error;
         }
         Recount();
         return wrote;
+    }
+
+    private sealed record Attempted<T>(T? Value, string? Error) where T : class;
+
+    /// Runs off the UI thread: captures the failure so the state can be updated back on it.
+    private static Attempted<T> Attempt<T>(Func<T> f) where T : class
+    {
+        try { return new(f(), null); }
+        catch (Exception e) { return new(null, e.Message); }
     }
 
     private ExeOverrideState Track(PriorityOverride actual)

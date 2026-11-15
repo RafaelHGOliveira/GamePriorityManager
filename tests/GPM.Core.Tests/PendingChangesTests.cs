@@ -85,11 +85,65 @@ public class PendingChangesTests
     {
         var changes = new PendingChanges(_priorities, new GraphicsPreferenceService(_store),
             worker ?? new InProcessElevatedWorker(_priorities), _config);
-        changes.Load(changes.Read(games));
+        Assert.True(changes.LoadAsync(games).GetAwaiter().GetResult());
         return changes;
     }
 
     private PendingChanges Loaded(params Game[] games) => Loaded(null, games);
+
+    /// Holds the batch until Release, as a UAC prompt the user hasn't answered yet would.
+    private sealed class HeldWorker(IElevatedWorker inner) : IElevatedWorker
+    {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Started => _started.Task;
+        public void Release() => _release.SetResult();
+
+        public async Task<ApplyReport?> ApplyAsync(IReadOnlyList<ApplyOp> ops)
+        {
+            _started.SetResult();
+            await _release.Task;
+            return await inner.ApplyAsync(ops);
+        }
+    }
+
+    [Fact]
+    public async Task a_load_during_apply_waits_and_shows_what_the_apply_wrote()
+    {
+        var worker = new HeldWorker(new InProcessElevatedWorker(_priorities));
+        var changes = Loaded(worker, G(CsPath));
+        changes.PriorityOverride("cs2.exe").PendingCpu = 3;
+
+        var apply = changes.ApplyAsync();
+        await worker.Started; // UAC prompt is up
+        var load = changes.LoadAsync([G(CsPath)]); // e.g. the user clicked Rescan
+        await Task.Delay(50);
+        Assert.False(load.IsCompleted);
+
+        worker.Release();
+        Assert.Equal(ApplyStatus.Applied, (await apply).Status);
+        Assert.True(await load);
+
+        var state = changes.PriorityOverride("cs2.exe");
+        Assert.Equal(3, state.RegistryCpu);
+        Assert.False(state.IsDirty);
+        Assert.Equal(0, changes.Count);
+    }
+
+    [Fact]
+    public async Task a_superseded_load_changes_nothing()
+    {
+        var changes = Loaded(G(CsPath));
+        var aPath = @"C:\a\a.exe";
+
+        var older = changes.LoadAsync([G(aPath)]);
+        var newer = changes.LoadAsync([G(CsPath)]);
+
+        Assert.True(await newer);
+        Assert.False(await older);
+        Assert.NotNull(changes.PriorityOverride("cs2.exe"));
+        Assert.Throws<KeyNotFoundException>(() => changes.PriorityOverride("a.exe"));
+    }
 
     [Fact]
     public void load_reads_what_windows_has_for_each_game()
@@ -279,7 +333,7 @@ public class PendingChangesTests
     {
         var changes = new PendingChanges(_priorities, new GraphicsPreferenceService(new ReadOnlyStore()),
             TestWorkers.DeclinedUac, _config);
-        changes.Load(changes.Read([G(CsPath)]));
+        await changes.LoadAsync([G(CsPath)]);
         changes.GraphicsPreference(CsPath).PendingGpu = 2;
         changes.PriorityOverride("cs2.exe").PendingCpu = 3;
 
@@ -289,19 +343,30 @@ public class PendingChangesTests
         Assert.Equal("access denied", changes.GraphicsPreference(CsPath).LastError);
     }
 
+    /// Runs a callback while the registry is being read, i.e. off the UI thread mid-load.
+    private sealed class DuringReadAll(IPriorityService inner, Action during) : IPriorityService
+    {
+        public PriorityOverride Read(string exeName) => inner.Read(exeName);
+        public IReadOnlyList<PriorityOverride> ReadAll() { during(); return inner.ReadAll(); }
+        public void Write(string exeName, int? cpu, int? io) => inner.Write(exeName, cpu, io);
+    }
+
     [Fact]
-    public void orphaned_flag_uses_provenance_as_of_load_not_read()
+    public async Task orphaned_flag_uses_provenance_as_of_load_not_read()
     {
         _priorities.Write("uninstalled.exe", 3, null);
-        var changes = new PendingChanges(_priorities, new GraphicsPreferenceService(_store),
+        // the UI thread saves games.json while the registry is read (a fresh object,
+        // as JsonConfigStore deserializes one)
+        var priorities = new DuringReadAll(_priorities, () =>
+        {
+            var saved = new GpmConfig();
+            saved.ManagedExes.Add("uninstalled.exe");
+            _config.Save(saved);
+        });
+        var changes = new PendingChanges(priorities, new GraphicsPreferenceService(_store),
             new InProcessElevatedWorker(_priorities), _config);
 
-        var snapshot = changes.Read([G(CsPath)]); // off the UI thread in the app
-        // the UI thread saved games.json meanwhile (a fresh object, as JsonConfigStore deserializes one)
-        var saved = new GpmConfig();
-        saved.ManagedExes.Add("uninstalled.exe");
-        _config.Save(saved);
-        changes.Load(snapshot);
+        await changes.LoadAsync([G(CsPath)]);
 
         Assert.True(Assert.Single(changes.OtherOverrides).IsOrphaned);
     }

@@ -1,13 +1,14 @@
 using GPM.App.ViewModels;
 using GPM.Core.Changes;
+using GPM.Core.Library;
 using GPM.Core.Models;
-using GPM.Core.Persistence;
 using GPM.Core.Priority;
 using GPM.Core.Resolve;
 using GPM.Core.Worker;
 
 namespace GPM.Core.Tests;
 
+/// UI settings round-trip through games.json. The detected-game cache is GameLibraryTests.
 public class SettingsCacheTests
 {
     private sealed class PassthroughResolver : IExeResolver
@@ -15,37 +16,9 @@ public class SettingsCacheTests
         public ExeResolution Resolve(Game game) => new(game.ExePath, false, []);
     }
 
-    private sealed class MemoryConfigStore : IConfigStore
-    {
-        public GpmConfig Cfg { get; private set; } = new();
-        public string FilePath => "test://games.json";
-        public GpmConfig Load() => Cfg;
-        public void Save(GpmConfig config) => Cfg = config;
-    }
-
-    private static Game G(string name) =>
-        new() { Name = name, Store = GameStore.Steam, ExePath = $@"C:\g\{name}.exe" };
-
-    [Fact]
-    public async Task first_load_scans_and_caches_second_load_uses_cache()
-    {
-        var cfg = new MemoryConfigStore();
-        var scans = 0;
-        var vm = new MainViewModel(
-            () => { scans++; return Task.FromResult<IReadOnlyList<Game>>([G("cs2")]); },
-            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
-
-        await vm.LoadAsync();
-        Assert.Equal(1, scans);
-        Assert.Single(cfg.Cfg.DetectedGames);
-
-        await vm.LoadAsync();          // cache hit
-        Assert.Equal(1, scans);
-        Assert.Single(vm.Rows);
-
-        await vm.LoadAsync(forceScan: true); // rescan button
-        Assert.Equal(2, scans);
-    }
+    private static MainViewModel Make(MemoryConfigStore cfg) =>
+        new(new GameLibrary(() => Task.FromResult<IReadOnlyList<Game>>([]), new PassthroughResolver(), cfg), cfg,
+            new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
 
     [Fact]
     public async Task settings_load_from_config_and_persist_on_change()
@@ -53,9 +26,7 @@ public class SettingsCacheTests
         var cfg = new MemoryConfigStore();
         cfg.Cfg.ShowIoColumn = true;
         cfg.Cfg.Theme = "dark";
-        var vm = new MainViewModel(
-            () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
+        var vm = Make(cfg);
 
         await vm.LoadAsync();
         Assert.True(vm.ShowIoColumn);
@@ -72,9 +43,7 @@ public class SettingsCacheTests
     public async Task show_windowed_column_setting_is_persisted()
     {
         var cfg = new MemoryConfigStore();
-        var vm = new MainViewModel(
-            () => Task.FromResult<IReadOnlyList<Game>>([]),
-            new PassthroughResolver(), cfg, new PendingChanges(new InMemoryPriorityService(), TestGraphics.New(), new InProcessElevatedWorker(new InMemoryPriorityService()), cfg));
+        var vm = Make(cfg);
         await vm.LoadAsync();
 
         vm.ShowWindowedColumn = true;

@@ -39,6 +39,10 @@ _Avoid_: experimental stores
 A game the user added by picking its exe, rather than one found by scanning a Store.
 _Avoid_: custom game
 
+**Game Library**:
+Every game GPM lists: the games detected in the Stores (cached between runs together with the exe GPM picked for each) plus the Manual Games, with the user's own exe choice winning over GPM's pick.
+_Avoid_: game list, scan results
+
 **Pending Change**:
 An edit the user made that Windows doesn't have yet; Discard drops it, Apply writes it.
 _Avoid_: dirty row, unsaved change
